@@ -473,6 +473,7 @@ tfoot td {
   color: var(--txt-3); background: #12171f; border-bottom: 1px solid var(--line); white-space: nowrap;
 }
 .ds-nozzles td { padding: 5px 10px; border-bottom: 1px solid #1a202a; vertical-align: top; }
+.ds-parts table { min-width: 820px; }
 .ds-nozzles td.ds-empty { padding: 12px; color: var(--txt-3); font-style: italic; text-align: left; }
 .ds-nozzle-note { margin: 0; padding: 8px 12px 10px; font-size: 10px; color: var(--txt-3); line-height: 1.6; border-top: 1px solid #1a202a; }
 .ds-nozzles tbody tr:hover { background: #171d26; }

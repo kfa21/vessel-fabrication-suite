@@ -26,6 +26,8 @@ interface Section {
   rows: Row[];
   /** component schedule rendered under the rows */
   table?: 'nozzle' | 'manway';
+  /** free-form component schedule for internals, vortex breakers and boots */
+  parts?: (v: Vessel, c: VesselCalc) => { head: string[]; rows: string[][]; note: string };
 }
 
 const SELECTS: Record<string, { v: string | number; l: string }[]> = {
@@ -244,12 +246,21 @@ export default function DatasheetTab({ vessel, calc, fleet, onPatch, onReset, is
     {
       no: 9,
       title: 'Internal rungs / rings',
-      sub: 'Tray support rings and vacuum stiffeners',
+      sub: 'Tray, demister and bed support rings — welded direct to the shell',
       rows: [
+        { label: 'Support rings welded to shell', kind: 'static', value: (v, c) => `${(v.trays ?? 0) + (v.packing || v.bedDepth ? 2 : 0) + (has(v, 'mist eliminator') ? 1 : 0) + (c.thk.external.ringsRequired ?? 0)} off` },
         { label: 'Tray support rings', kind: 'static', value: (v) => (v.trays ? `${v.trays} off · 50 × 8 flats` : 'not required') },
+        { label: 'Demister support ring', kind: 'static', value: (v) => (has(v, 'mist eliminator') ? '1 off · 50 × 8 flat' : 'not required') },
+        { label: 'Bed support / limiter rings', kind: 'static', value: (v) => (v.packing || v.bedDepth ? '2 off · 75 × 10 and 50 × 8 flats' : 'not required') },
         { label: 'Vacuum stiffener rings', kind: 'static', value: (_v, c) => (c.thk.external.ringsRequired ? `${c.thk.external.ringsRequired} off` : 'not required') },
+        { label: 'Attachment', kind: 'static', value: () => 'Direct weld to shell — continuous 6 mm fillet, ground flush' },
         { label: 'Material', kind: 'static', value: () => 'SA-516 Gr.70' },
       ],
+      parts: (v, c) => ({
+        head: ['Ring', 'Qty', 'Size', 'Section', 'Material', 'Attachment'],
+        rows: ringRows(v, c),
+        note: 'Support rings are welded directly to the shell before the internals are installed · tray rings set level within ±3 mm at each tray elevation and located from the top tangent · demister and bed rings carry the full bed / element load into the shell · all internal welds are completed before final closure and before PWHT · ring-to-shell welds are continuous 6 mm fillets, ground flush where trays or packing sit on the ring.',
+      }),
     },
     {
       no: 10,
@@ -283,22 +294,39 @@ export default function DatasheetTab({ vessel, calc, fleet, onPatch, onReset, is
     {
       no: 13,
       title: 'Vortex breaker',
-      sub: 'Outlet protection',
+      sub: 'Outlet protection — cross-vane breaker welded into the bottom head',
       rows: [
-        { label: 'Vortex breaker', kind: 'static', value: (v) => (has(v, 'vortex') || ['Drum', 'Receiver'].includes(v.kind) ? '1 off' : 'not required') },
+        { label: 'Vortex breaker', kind: 'static', value: (v) => (vortexApplies(v) ? '1 off · raised cross-vane' : 'not required') },
+        { label: 'Protected outlet', kind: 'static', value: (v, c) => { const d = vortexDims(v, c); return d ? `${d.nozzle.mark} · ${npsText(d.nozzle.nps)} · ${d.nozzle.service}` : '—'; } },
+        { label: 'Breaker size', kind: 'static', value: (v, c) => { const d = vortexDims(v, c); return d ? `Ø${d.breakerOd} × ${d.vaneH} mm high` : '—'; } },
         { label: 'Plate thickness', kind: 'static', value: () => '10 mm' },
+        { label: 'Material', kind: 'static', value: () => 'SA-516 Gr.70' },
+        { label: 'Attachment', kind: 'static', value: () => 'Directly welded to the bottom head and outlet neck — no removable fasteners' },
       ],
+      parts: (v, c) => ({
+        head: ['Component', 'Qty', 'Size (mm)', 'Thk', 'Material', 'Fixing'],
+        rows: vortexRows(v, c),
+        note: 'Cross-vane vortex breaker in the outlet, sized from the protected nozzle bore · vanes and top plate 10 mm SA-516 Gr.70, fully fillet-welded to each other and to the outlet collar · the collar is welded directly to the bottom head with a continuous 8 mm fillet, so the breaker is a permanent internal and is installed before final closure · vane height and breaker diameter are generated from the outlet size, so they follow any nozzle change.',
+      }),
     },
     {
       no: 14,
       title: 'Boot / drop leg',
-      sub: 'Outlet configuration',
+      sub: 'Outlet configuration — shell, head, closure and fasteners',
       rows: [
         { label: 'Boot provided', kind: 'static', value: (v) => (v.dropLeg ? 'Yes' : 'No') },
         { label: 'Boot OD', kind: 'static', value: (v) => (v.dropLeg ? `${v.dropLeg.od} mm` : '—') },
-        { label: 'Boot thickness', kind: 'static', value: (v) => (v.dropLeg ? `${fmt(v.dropLeg.tt)} mm` : '—') },
+        { label: 'Boot length T/T', kind: 'static', value: (v) => (v.dropLeg ? `${fmt(v.dropLeg.tt)} mm` : '—') },
+        { label: 'Boot shell thickness', kind: 'static', value: (_v, c) => (c.vessel.dropLeg ? `${selThk(c, 'dropleg') ?? '—'} mm` : '—') },
         { label: 'Boot corrosion allowance', kind: 'static', value: (v) => (v.dropLeg ? `${v.caLeg ?? v.ca} mm` : '—') },
+        { label: 'Boot closure', kind: 'static', value: (v) => (v.dropLeg ? `BLRF ${npsText(npsFromOd(v.dropLeg.od))} CL${v.asmeClass} · blind + 6 mm SW gasket` : '—') },
+        { label: 'Boot insulation / heat trace', kind: 'static', value: (v) => (v.dropLeg ? 'By others — winterizing of boot and bottom head' : '—') },
       ],
+      parts: (v, c) => ({
+        head: ['Component', 'Qty', 'Size', 'Thk', 'Material', 'Notes'],
+        rows: bootRows(v, c),
+        note: 'Boot is a pressure part in its own right: shell thickness from UG-27 with its own corrosion allowance, dished bottom head and a bolted blind closure · the boot-to-main-shell junction is a full-penetration weld with the main shell, radiographed with the shell seams · flange, blind, gasket and studs follow ASME B16.5 at the vessel class · insulation and heat tracing on the boot are by others.',
+      }),
     },
   ], [vessel, calc, ds]);
 
@@ -325,6 +353,12 @@ export default function DatasheetTab({ vessel, calc, fleet, onPatch, onReset, is
           [`${s.no + 1}. ${s.title}`, `${who} — fasteners`, p.bolts, src],
         ];
       }) : []),
+      ...(s.parts ? s.parts(vessel, calc).rows.map((r) => [
+        `${s.no + 1}. ${s.title}`,
+        r[0],
+        r.slice(1).join(' · '),
+        'component schedule',
+      ]) : []),
     ]),
   ]);
 
@@ -520,6 +554,27 @@ export default function DatasheetTab({ vessel, calc, fleet, onPatch, onReset, is
               </p>
             </div>
           )}
+
+          {s.parts && (() => {
+            const pt = s.parts(vessel, calc);
+            return (
+              <div className="ds-nozzles ds-parts">
+                <table>
+                  <thead>
+                    <tr>{pt.head.map((h) => <th key={h}>{h}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {pt.rows.map((row, i) => (
+                      <tr key={i}>
+                        {row.map((cell, j) => <td key={j} className={j === 0 ? 'mono' : ''}>{cell}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="ds-nozzle-note">{pt.note}</p>
+              </div>
+            );
+          })()}
         </section>
       ))}
 
@@ -695,6 +750,101 @@ function saddleH(v: Vessel): number {
   return Math.max(400, Math.round((R * 0.45) / 50) * 50);
 }
 
+/* ── internals, vortex breaker and boot component data ── */
+
+const NPS_OD: [number, number][] = [
+  [114.3, 4], [168.3, 6], [219.1, 8], [273, 10], [323.9, 12],
+  [355.6, 14], [406.4, 16], [457, 18], [508, 20], [610, 24],
+];
+
+function npsFromOd(od: number): number {
+  let nps = 24, diff = Infinity;
+  for (const [o, n] of NPS_OD) {
+    const d = Math.abs(o - od);
+    if (d < diff) { diff = d; nps = n; }
+  }
+  return nps;
+}
+
+function selThk(c: VesselCalc, key: string): number | undefined {
+  return c.thk.rows.find((r) => r.key === key)?.tSel;
+}
+
+const vortexApplies = (v: Vessel) => has(v, 'vortex') || ['Drum', 'Separator', 'Receiver'].includes(v.kind);
+
+function vortexDims(v: Vessel, c: VesselCalc) {
+  if (!vortexApplies(v)) return null;
+  const pool = v.nozzles.filter((n) => n.nps < 18);
+  if (!pool.length) return null;
+  const primary = pool.filter((n) => /bottom outlet|liquid outlet/i.test(n.service));
+  const anyOutlet = pool.filter((n) => /outlet/i.test(n.service));
+  const n = [...(primary.length ? primary : anyOutlet.length ? anyOutlet : pool)].sort((a, b) => b.nps - a.nps)[0];
+  const od = c.thk.reinf.find((x) => x.mark === n.mark)?.od ?? n.nps * 25.4;
+  const breakerOd = Math.round(Math.max(od * 2, od + 100) / 10) * 10;
+  const vaneH = Math.max(100, Math.round((od * 0.8) / 10) * 10);
+  const vaneL = Math.max(40, Math.round((breakerOd - od) / 2));
+  return { nozzle: n, od, breakerOd, vaneH, vaneL };
+}
+
+function ringRows(v: Vessel, c: VesselCalc): string[][] {
+  const rows: string[][] = [];
+  const mat = 'SA-516 Gr.70';
+  if (v.trays) {
+    rows.push(['Tray support ring', `${v.trays} off`, `Ø${v.di} ID`, '50 × 8 flat', mat,
+      'Continuous 6 mm fillet to shell · level ±3 mm at each tray']);
+  }
+  if (v.packing || v.bedDepth) {
+    rows.push(['Packing bed support ring', '1 off', `Ø${v.di} ID`, '75 × 10 flat', mat,
+      'Continuous 6 mm fillet to shell · support grid on top']);
+    rows.push(['Bed limiter ring', '1 off', `Ø${v.di} ID`, '50 × 8 flat', 'SA-240 Type 304',
+      'Direct weld to shell, 6 mm fillet']);
+  }
+  if (has(v, 'mist eliminator')) {
+    rows.push(['Demister support ring', '1 off', `Ø${v.di} ID`, '50 × 8 flat', mat,
+      'Continuous 6 mm fillet to shell · drilled for element fixings']);
+  }
+  if (c.thk.external.ringsRequired) {
+    rows.push(['Vacuum stiffener ring', `${c.thk.external.ringsRequired} off`, `Ø${v.di}`, `${c.thk.tShell} × 100 plate`, mat,
+      'Intermittent 6 mm fillet, 100 mm pitch · 12 mm clear of seams']);
+  }
+  if (!rows.length) {
+    rows.push(['Distributor support ring', '1 off', `Ø${v.di} ID`, '50 × 8 flat', 'SA-240 Type 316L',
+      'Direct weld to shell, 6 mm fillet']);
+  }
+  return rows;
+}
+
+function vortexRows(v: Vessel, c: VesselCalc): string[][] {
+  const d = vortexDims(v, c);
+  if (!d) return [['Vortex breaker', '0', '—', '—', '—', 'Not required for this service']];
+  return [
+    ['Radial vanes', '4 off', `${d.vaneL} long × ${d.vaneH} high`, '10 mm', 'SA-516 Gr.70', 'Full fillet to top plate and outlet collar'],
+    ['Top cover plate', '1 off', `Ø${d.breakerOd}`, '10 mm', 'SA-516 Gr.70', '6 mm fillet all round, underside flush'],
+    ['Outlet collar ring', '1 off', `Ø${d.od} × 25 high`, '10 mm', 'SA-516 Gr.70', 'Continuous 8 mm fillet to bottom head — permanent weld'],
+    ['Tie bars', '4 off', `Ø12 × ${d.vaneL}`, '—', 'SA-36', 'Welded between adjacent vanes, 6 mm fillet'],
+  ];
+}
+
+function bootRows(v: Vessel, c: VesselCalc): string[][] {
+  const d = v.dropLeg;
+  if (!d) return [['Boot', '0', '—', '—', '—', 'Not required for this service']];
+  const t = selThk(c, 'dropleg') ?? Math.max(8, Math.round(c.thk.tShell * 0.65));
+  const nps = npsFromOd(d.od);
+  const cls = v.asmeClass;
+  const ca = v.caLeg ?? v.ca;
+  const head = v.headBot === 'FLAT' ? 'flat plate' : '2:1 SE';
+  const studs = studCount(cls, nps);
+  return [
+    ['Boot shell', '1 off', `Ø${d.od} OD × ${fmt(d.tt)} T/T`, `${t} mm`, 'SA-516 Gr.70',
+      `Full-pen butt to main shell · CA ${ca} mm`],
+    ['Bottom head', '1 off', `Ø${d.od} · ${head}`, `${t} mm`, 'SA-516 Gr.70', 'Butt weld, 100% RT with shell seams'],
+    ['Bottom flange', '1 off', `BLRF ${npsText(nps)} CL${cls}`, '—', 'SA-105N', 'RF face, welded to boot shell'],
+    ['Blind cover', '1 off', `${npsText(nps)} CL${cls} · drilled`, '—', 'SA-516 Gr.70', 'B16.5 bolt circle, lifting lug'],
+    ['Gasket', '1 off', `${npsText(nps)} CL${cls}`, '6 mm', '316L/graphite', 'Spiral wound, centring ring'],
+    ['Fasteners', `${studs} sets`, `${studs} × ${studDia(cls, nps)} × ${studLen(nps)}`, '—', 'A193 B7 / A194 2H', 'Per joint, plus 10% spares'],
+  ];
+}
+
 /* ── component summary matrix (shop component list) ── */
 
 const headShort = (h: HeadKind) => (h === 'FLAT' ? 'flat' : h === 'CONE' ? 'conical' : '2:1 SE');
@@ -735,6 +885,13 @@ const COMPONENTS: { label: string; cell: (v: Vessel, c: VesselCalc) => string }[
             : 'Distributor support',
   },
   {
+    label: 'Tray / demister support rings',
+    cell: (v, c) => {
+      const n = (v.trays ?? 0) + (v.packing || v.bedDepth ? 2 : 0) + (has(v, 'mist eliminator') ? 1 : 0) + (c.thk.external.ringsRequired ?? 0);
+      return n ? `${n} off · welded to shell` : '—';
+    },
+  },
+  {
     label: 'Skirt',
     cell: (v, c) =>
       v.support === 'Skirt'
@@ -766,15 +923,15 @@ const COMPONENTS: { label: string; cell: (v: Vessel, c: VesselCalc) => string }[
   { label: 'Baffles', cell: (v) => (has(v, 'baffle') || v.kind === 'Drum' || v.kind === 'Separator' ? '1 off' : '—') },
   { label: 'Demisters', cell: (v) => (has(v, 'mist eliminator') ? '1 off' : '—') },
   { label: 'Coalescers', cell: (v) => (has(v, 'coalescer') ? '1 off' : '—') },
-  {
-    label: 'Vortex breaker',
-    cell: (v) => (has(v, 'vortex') || v.kind === 'Drum' || v.kind === 'Receiver' ? '1 off' : '—'),
-  },
+  { label: 'Vortex breaker', cell: (v) => (vortexApplies(v) ? '1 off' : '—') },
   {
     label: 'Base ring',
     cell: (v) => (v.support === 'Skirt' ? `Ø${v.di} · 40 mm` : v.support === 'Legs' ? '4 × 200 × 200' : '—'),
   },
-  { label: 'Boot shell', cell: (v) => (v.dropLeg ? `Ø${v.dropLeg.od} × ${fmt(v.dropLeg.tt)} mm` : '—') },
+  {
+    label: 'Boot shell',
+    cell: (v, c) => (v.dropLeg ? `Ø${v.dropLeg.od} × ${fmt(v.dropLeg.tt)} T/T · ${selThk(c, 'dropleg') ?? '—'} mm` : '—'),
+  },
   {
     label: 'Fireproofing',
     cell: (v) =>
