@@ -316,6 +316,7 @@ export default function DatasheetTab({ vessel, calc, fleet, onPatch, onReset, is
         return [
           [`${s.no + 1}. ${s.title}`, `${who} — flange`, p.flange, 'nozzle schedule'],
           [`${s.no + 1}. ${s.title}`, `${who} — pipe / neck`, p.pipe, 'nozzle schedule'],
+          [`${s.no + 1}. ${s.title}`, `${who} — pipe length`, `${p.length} mm (flange face to shell)`, 'nozzle schedule'],
           [`${s.no + 1}. ${s.title}`, `${who} — RF pad`, p.pad, 'nozzle schedule'],
           [`${s.no + 1}. ${s.title}`, `${who} — gasket`, p.gasket, 'nozzle schedule'],
           [`${s.no + 1}. ${s.title}`, `${who} — fasteners`, p.bolts, 'nozzle schedule'],
@@ -462,6 +463,7 @@ export default function DatasheetTab({ vessel, calc, fleet, onPatch, onReset, is
                     <th>Mark</th><th>Service</th><th>NPS</th><th>Qty</th><th>CL</th>
                     <th>Flange — type · size · material</th>
                     <th>Pipe / neck — size · sch · material</th>
+                    <th>Pipe length<br />face to shell</th>
                     <th>RF pad — size · material</th>
                     <th>Gasket</th>
                     <th>Fasteners</th>
@@ -479,6 +481,7 @@ export default function DatasheetTab({ vessel, calc, fleet, onPatch, onReset, is
                         <td>CL{n.cls ?? vessel.asmeClass}</td>
                         <td>{p.flange}</td>
                         <td>{p.pipe}</td>
+                        <td>{p.length} mm</td>
                         <td>{p.pad}</td>
                         <td>{p.gasket}</td>
                         <td>{p.bolts}</td>
@@ -489,8 +492,10 @@ export default function DatasheetTab({ vessel, calc, fleet, onPatch, onReset, is
               </table>
               <p className="ds-nozzle-note">
                 Flange face RF · sizes, stud sizes and bolt counts per ASME B16.5 · spiral-wound (SW) gaskets SS316L/graphite ·
-                RF pads sized by UG-37 and shown as OD × thickness · fasteners are A193 B7 studs with A194 2H nuts, quoted per
-                joint (multiply by Qty for the vessel total) · NPS 20 and above use a neck fabricated from shell plate.
+                RF pads sized by UG-37 and shown as OD × thickness · pipe length is the neck projection from flange face to shell
+                (150 mm up to NPS 4, 200 mm NPS 6–8, 250 mm NPS 10–16, 300 mm from NPS 18), allowing for insulation and wrench
+                clearance — confirm against the GA drawing · fasteners are A193 B7 studs with A194 2H nuts, quoted per joint
+                (multiply by Qty for the vessel total) · NPS 20 and above use a neck fabricated from shell plate.
               </p>
             </div>
           )}
@@ -561,7 +566,7 @@ function display(vessel: Vessel, row: Row, draft: Record<string, string>): strin
 
 /* ── nozzle component schedule ── */
 
-type NozParts = { flange: string; pipe: string; pad: string; gasket: string; bolts: string };
+type NozParts = { flange: string; pipe: string; length: number; pad: string; gasket: string; bolts: string };
 
 /** ASME B16.5 stud count by class and NPS. */
 const STUD_COUNT: Record<number, Record<string, number>> = {
@@ -636,8 +641,9 @@ function nozzleParts(v: Vessel, c: VesselCalc, n: NozzleSpec): NozParts {
 
   const gasket = `SW ${blind ? 6 : 4.5} mm · ${npsText(n.nps)} CL${cls} · 316L/graphite`;
   const bolts = `${studCount(cls, n.nps)} × ${studDia(cls, n.nps)} × ${studLen(n.nps)} · A193 B7 / A194 2H`;
+  const length = n.nps <= 4 ? 150 : n.nps <= 8 ? 200 : n.nps <= 16 ? 250 : 300;
 
-  return { flange, pipe, pad, gasket, bolts };
+  return { flange, pipe, length, pad, gasket, bolts };
 }
 
 function thick(c: VesselCalc, key: string): string {

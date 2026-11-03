@@ -467,7 +467,7 @@ tfoot td {
 .ds-input:focus { outline: 1px solid var(--amber); outline-offset: 0; border-color: var(--amber); }
 
 .ds-nozzles { border-top: 1px solid var(--line); overflow: auto; }
-.ds-nozzles table { width: 100%; min-width: 1080px; border-collapse: collapse; font-size: 10.5px; }
+.ds-nozzles table { width: 100%; min-width: 1160px; border-collapse: collapse; font-size: 10.5px; }
 .ds-nozzles th {
   text-align: left; padding: 6px 10px; font-size: 9px; letter-spacing: .6px; text-transform: uppercase;
   color: var(--txt-3); background: #12171f; border-bottom: 1px solid var(--line); white-space: nowrap;
