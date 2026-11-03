@@ -24,7 +24,8 @@ interface Section {
   title: string;
   sub: string;
   rows: Row[];
-  table?: boolean;
+  /** component schedule rendered under the rows */
+  table?: 'nozzle' | 'manway';
 }
 
 const SELECTS: Record<string, { v: string | number; l: string }[]> = {
@@ -93,8 +94,10 @@ export default function DatasheetTab({ vessel, calc, fleet, onPatch, onReset, is
   };
 
   const ds = useMemo(() => datasheetFor(vessel.id), [vessel.id]);
-  const nozzleCount = vessel.nozzles.reduce((a, n) => a + n.qty, 0);
+  const nozzles = vessel.nozzles.filter((n) => n.nps < 18);
+  const nozzleCount = nozzles.reduce((a, n) => a + n.qty, 0);
   const manways = vessel.nozzles.filter((n) => n.nps >= 18);
+  const manwayCount = manways.reduce((a, n) => a + n.qty, 0);
   const overrideCount = Object.keys(draft).length;
 
   /* component matrix — one row per fabricated component, one column per equipment item */
@@ -189,21 +192,20 @@ export default function DatasheetTab({ vessel, calc, fleet, onPatch, onReset, is
     {
       no: 4,
       title: 'Nozzles',
-      sub: `${vessel.nozzles.length} unique marks · ${nozzleCount} off total · flange CL${vessel.asmeClass} RF — every component scheduled below`,
+      sub: `${nozzles.length} unique marks · ${nozzleCount} off total · flange CL${vessel.asmeClass} RF — manways are scheduled separately in section 06`,
       rows: [],
-      table: true,
+      table: 'nozzle',
     },
     {
       no: 5,
       title: 'Manways',
-      sub: manways.length ? `${manways.reduce((a, n) => a + n.qty, 0)} off · ${manways.map((m) => `NPS ${m.nps}`).join(', ')}` : 'No manway-sized opening on this datasheet',
+      sub: manways.length ? `${manwayCount} off · ${manways.map((m) => `NPS ${m.nps}`).join(', ')} — every component scheduled below` : 'No manway-sized opening on this datasheet',
       rows: [
         { label: 'Manway size', kind: 'static', value: () => (manways.length ? manways.map((m) => `NPS ${m.nps}`).join(' / ') : '—') },
-        { label: 'Covers', kind: 'static', value: () => (manways.length ? `${manways.reduce((a, n) => a + n.qty, 0)} off with davit'` : '—') },
-        { label: 'Gasket', kind: 'static', value: () => (manways.length ? 'Spiral wound, 6 mm, 304/304L + graphite' : '—') },
-        { label: 'Fasteners', kind: 'static', value: () => (manways.length ? `${manways.reduce((a, n) => a + n.qty, 0) * 8} sets M20 × 80 · ${Math.round(manways.reduce((a, n) => a + n.qty, 0) * 0.8)} spares` : '—') },
-        { label: 'Davit arm', kind: 'static', value: () => (manways.length ? 'Yes' : 'No') },
+        { label: 'Covers', kind: 'static', value: () => (manways.length ? `${manwayCount} off · hinged davit arm each` : '—') },
+        { label: 'Davit arm', kind: 'static', value: () => (manways.length ? 'Yes — one per cover' : 'No') },
       ],
+      table: 'manway',
     },
     {
       no: 6,
@@ -310,16 +312,17 @@ export default function DatasheetTab({ vessel, calc, fleet, onPatch, onReset, is
         r.kind === 'static' ? (r.value?.(vessel, calc) ?? '') : display(vessel, r, draft),
         r.isNew ? 'added for calculation basis' : 'datasheet',
       ]),
-      ...(s.table ? vessel.nozzles.flatMap((nz) => {
+      ...(s.table ? (s.table === 'manway' ? manways : nozzles).flatMap((nz) => {
         const p = nozzleParts(vessel, calc, nz);
         const who = `${nz.mark} · ${npsText(nz.nps)} · CL${nz.cls ?? vessel.asmeClass} · ${nz.qty} off`;
+        const src = s.table === 'manway' ? 'manway schedule' : 'nozzle schedule';
         return [
-          [`${s.no + 1}. ${s.title}`, `${who} — flange`, p.flange, 'nozzle schedule'],
-          [`${s.no + 1}. ${s.title}`, `${who} — pipe / neck`, p.pipe, 'nozzle schedule'],
-          [`${s.no + 1}. ${s.title}`, `${who} — pipe length`, `${p.length} mm (flange face to shell)`, 'nozzle schedule'],
-          [`${s.no + 1}. ${s.title}`, `${who} — RF pad`, p.pad, 'nozzle schedule'],
-          [`${s.no + 1}. ${s.title}`, `${who} — gasket`, p.gasket, 'nozzle schedule'],
-          [`${s.no + 1}. ${s.title}`, `${who} — fasteners`, p.bolts, 'nozzle schedule'],
+          [`${s.no + 1}. ${s.title}`, `${who} — flange`, p.flange, src],
+          [`${s.no + 1}. ${s.title}`, `${who} — pipe / neck`, p.pipe, src],
+          [`${s.no + 1}. ${s.title}`, `${who} — pipe length`, `${p.length} mm (flange face to shell)`, src],
+          [`${s.no + 1}. ${s.title}`, `${who} — RF pad`, p.pad, src],
+          [`${s.no + 1}. ${s.title}`, `${who} — gasket`, p.gasket, src],
+          [`${s.no + 1}. ${s.title}`, `${who} — fasteners`, p.bolts, src],
         ];
       }) : []),
     ]),
@@ -470,7 +473,7 @@ export default function DatasheetTab({ vessel, calc, fleet, onPatch, onReset, is
                   </tr>
                 </thead>
                 <tbody>
-                  {vessel.nozzles.map((n) => {
+                  {(s.table === 'manway' ? manways : nozzles).map((n) => {
                     const p = nozzleParts(vessel, calc, n);
                     return (
                       <tr key={n.mark}>
@@ -488,14 +491,32 @@ export default function DatasheetTab({ vessel, calc, fleet, onPatch, onReset, is
                       </tr>
                     );
                   })}
+                  {(s.table === 'manway' ? manways : nozzles).length === 0 && (
+                    <tr>
+                      <td className="ds-empty" colSpan={11}>
+                        {s.table === 'manway' ? 'No manway-sized opening on this datasheet.' : 'No process nozzle under NPS 18 on this datasheet.'}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
               <p className="ds-nozzle-note">
-                Flange face RF · sizes, stud sizes and bolt counts per ASME B16.5 · spiral-wound (SW) gaskets SS316L/graphite ·
-                RF pads sized by UG-37 and shown as OD × thickness · pipe length is the neck projection from flange face to shell
-                (150 mm up to NPS 4, 200 mm NPS 6–8, 250 mm NPS 10–16, 300 mm from NPS 18), allowing for insulation and wrench
-                clearance — confirm against the GA drawing · fasteners are A193 B7 studs with A194 2H nuts, quoted per joint
-                (multiply by Qty for the vessel total) · NPS 20 and above use a neck fabricated from shell plate.
+                {s.table === 'manway' ? (
+                  <>
+                    Manways are the NPS 18 and larger openings, scheduled here with their own components · flange face RF and stud
+                    sizes / bolt counts per ASME B16.5 · blind flange with davit arm, hinge and swing bolt per cover · 6 mm
+                    spiral-wound SS316L/graphite gasket · 300 mm neck projection from flange face to shell · NPS 20 and above use a
+                    neck fabricated from shell plate · fasteners are A193 B7 studs with A194 2H nuts, quoted per joint.
+                  </>
+                ) : (
+                  <>
+                    Process nozzles below NPS 18 · flange face RF · sizes, stud sizes and bolt counts per ASME B16.5 · spiral-wound
+                    (SW) gaskets SS316L/graphite · RF pads sized by UG-37 and shown as OD × thickness · pipe length is the neck
+                    projection from flange face to shell (150 mm up to NPS 4, 200 mm NPS 6–8, 250 mm NPS 10–16), allowing for
+                    insulation and wrench clearance — confirm against the GA drawing · fasteners are A193 B7 studs with A194 2H
+                    nuts, quoted per joint (multiply by Qty for the vessel total).
+                  </>
+                )}
               </p>
             </div>
           )}
