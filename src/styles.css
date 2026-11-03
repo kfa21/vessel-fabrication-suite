@@ -554,3 +554,31 @@ tfoot td {
   border: 1px solid var(--line-2); border-radius: 6px; background: #fff;
 }
 .ai-vision-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+
+/* component summary matrix */
+.ds-comp-scroll { overflow: auto; border-top: 1px solid var(--line); }
+.ds-comp-table { border-collapse: separate; border-spacing: 0; font-size: 9.5px; }
+.ds-comp-table th, .ds-comp-table td { padding: 5px 9px; border-bottom: 1px solid #1a202a; white-space: nowrap; }
+.ds-comp-table thead th {
+  background: #12171f; color: var(--txt-3); font-size: 8.5px; letter-spacing: .5px; text-transform: uppercase;
+  font-weight: 600; text-align: left; border-bottom: 1px solid var(--line);
+}
+.ds-comp-table .ds-comp-group { text-align: center; color: var(--amber); background: #171d27; border-left: 1px solid var(--line); }
+.ds-comp-table thead th b { display: block; font-family: var(--mono); font-size: 9.5px; color: var(--txt); letter-spacing: 0; }
+.ds-comp-table thead th span {
+  display: block; max-width: 96px; overflow: hidden; text-overflow: ellipsis;
+  font-size: 8px; letter-spacing: 0; text-transform: none; color: var(--txt-3);
+}
+.ds-comp-table tbody th {
+  position: sticky; left: 0; z-index: 1; background: #12171f; text-align: left;
+  font-size: 10px; font-weight: 500; color: var(--txt-2); min-width: 170px; border-right: 1px solid var(--line);
+}
+.ds-comp-table .ds-comp-corner {
+  position: sticky; left: 0; z-index: 2; background: #12171f; min-width: 170px;
+  border-right: 1px solid var(--line); vertical-align: bottom;
+}
+.ds-comp-table td { font-family: var(--mono); font-size: 9.5px; color: var(--txt); }
+.ds-comp-table td.na { color: #4a5361; }
+.ds-comp-table thead th.on, .ds-comp-table td.on { background: rgba(240,166,56,.09); }
+.ds-comp-table thead th.on { background: #241d12; }
+.ds-comp-table td.on { color: var(--amber); }

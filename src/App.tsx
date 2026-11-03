@@ -279,6 +279,7 @@ export default function App() {
               <DatasheetTab
                 vessel={selected.vessel}
                 calc={selected}
+                fleet={fleet}
                 onPatch={(patch) => patchVessel(selected.vessel.id, patch)}
                 onReset={() => setOverrides((m) => {
                   const next = { ...m };
