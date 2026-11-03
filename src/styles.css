@@ -467,12 +467,13 @@ tfoot td {
 .ds-input:focus { outline: 1px solid var(--amber); outline-offset: 0; border-color: var(--amber); }
 
 .ds-nozzles { border-top: 1px solid var(--line); overflow: auto; }
-.ds-nozzles table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+.ds-nozzles table { width: 100%; min-width: 1080px; border-collapse: collapse; font-size: 10.5px; }
 .ds-nozzles th {
   text-align: left; padding: 6px 10px; font-size: 9px; letter-spacing: .6px; text-transform: uppercase;
   color: var(--txt-3); background: #12171f; border-bottom: 1px solid var(--line); white-space: nowrap;
 }
-.ds-nozzles td { padding: 5px 10px; border-bottom: 1px solid #1a202a; }
+.ds-nozzles td { padding: 5px 10px; border-bottom: 1px solid #1a202a; vertical-align: top; }
+.ds-nozzle-note { margin: 0; padding: 8px 12px 10px; font-size: 10px; color: var(--txt-3); line-height: 1.6; border-top: 1px solid #1a202a; }
 .ds-nozzles tbody tr:hover { background: #171d26; }
 .ds-nozzles td.mono { color: var(--amber); font-weight: 600; }
 

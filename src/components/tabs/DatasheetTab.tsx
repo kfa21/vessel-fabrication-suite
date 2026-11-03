@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Pill, downloadCsv } from '../ui';
 import { fmt, money, round, type VesselCalc } from '../../lib/engine';
-import { datasheetFor, type Vessel, type HeadKind, type Orientation } from '../../data/vessels';
+import { datasheetFor, type Vessel, type HeadKind, type NozzleSpec, type Orientation } from '../../data/vessels';
 
 type RowKind = 'text' | 'number' | 'select' | 'yesno' | 'static';
 
@@ -94,7 +94,6 @@ export default function DatasheetTab({ vessel, calc, onPatch, onReset, isOverrid
   const ds = useMemo(() => datasheetFor(vessel.id), [vessel.id]);
   const nozzleCount = vessel.nozzles.reduce((a, n) => a + n.qty, 0);
   const manways = vessel.nozzles.filter((n) => n.nps >= 18);
-  const padRows = calc.thk.reinf.filter((r) => r.padArea > 0);
   const overrideCount = Object.keys(draft).length;
 
   const sections: Section[] = useMemo(() => [
@@ -174,15 +173,8 @@ export default function DatasheetTab({ vessel, calc, onPatch, onReset, isOverrid
     {
       no: 4,
       title: 'Nozzles',
-      sub: `${vessel.nozzles.length} unique marks · ${nozzleCount} off total · flange CL${vessel.asmeClass} RF`,
-      rows: [
-        { label: 'Nozzle schedule', kind: 'static', value: () => '10 / 20 / 40 / 80 / 80S / STD / XS / XXS', isNew: true },
-        { label: 'Flange face', kind: 'static', value: () => 'RF (BLRF / WNRF)', isNew: true },
-        { label: 'Reinforcement pads required', kind: 'static', value: () => (padRows.length ? `${padRows.length} off · ${padRows.map((p) => `${p.mark} ${p.padWidth}×${p.padThk}`).join(', ')}` : 'none — all self-reinforced'), isNew: true },
-        { label: 'Nozzle pipe material', kind: 'static', value: () => 'SA-106 Gr.B', isNew: true },
-        { label: 'Flange material', kind: 'static', value: () => 'SA-105', isNew: true },
-        { label: 'Gasket / fasteners', kind: 'static', value: () => 'Spiral wound 304/304L + graphite · A193 B7 / A194 2H', isNew: true },
-      ],
+      sub: `${vessel.nozzles.length} unique marks · ${nozzleCount} off total · flange CL${vessel.asmeClass} RF — every component scheduled below`,
+      rows: [],
       table: true,
     },
     {
@@ -290,17 +282,30 @@ export default function DatasheetTab({ vessel, calc, onPatch, onReset, isOverrid
         { label: 'Boot corrosion allowance', kind: 'static', value: (v) => (v.dropLeg ? `${v.caLeg ?? v.ca} mm` : '—') },
       ],
     },
-  ], [vessel, calc, padRows, ds]);
+  ], [vessel, calc, ds]);
 
   const exportCsv = () => downloadCsv(`Datasheet-${vessel.id}.csv`, [
     ['UOP DATASHEET', vessel.id, vessel.service],
     ['Section', 'Field', 'Value', 'Source'],
-    ...sections.flatMap((s) => s.rows.map((r) => [
-      `${s.no + 1}. ${s.title}`,
-      r.label,
-      r.kind === 'static' ? (r.value?.(vessel, calc) ?? '') : display(vessel, r, draft),
-      r.isNew ? 'added for calculation basis' : 'datasheet',
-    ])),
+    ...sections.flatMap((s) => [
+      ...s.rows.map((r) => [
+        `${s.no + 1}. ${s.title}`,
+        r.label,
+        r.kind === 'static' ? (r.value?.(vessel, calc) ?? '') : display(vessel, r, draft),
+        r.isNew ? 'added for calculation basis' : 'datasheet',
+      ]),
+      ...(s.table ? vessel.nozzles.flatMap((nz) => {
+        const p = nozzleParts(vessel, calc, nz);
+        const who = `${nz.mark} · ${npsText(nz.nps)} · CL${nz.cls ?? vessel.asmeClass} · ${nz.qty} off`;
+        return [
+          [`${s.no + 1}. ${s.title}`, `${who} — flange`, p.flange, 'nozzle schedule'],
+          [`${s.no + 1}. ${s.title}`, `${who} — pipe / neck`, p.pipe, 'nozzle schedule'],
+          [`${s.no + 1}. ${s.title}`, `${who} — RF pad`, p.pad, 'nozzle schedule'],
+          [`${s.no + 1}. ${s.title}`, `${who} — gasket`, p.gasket, 'nozzle schedule'],
+          [`${s.no + 1}. ${s.title}`, `${who} — fasteners`, p.bolts, 'nozzle schedule'],
+        ];
+      }) : []),
+    ]),
   ]);
 
   return (
@@ -351,7 +356,7 @@ export default function DatasheetTab({ vessel, calc, onPatch, onReset, isOverrid
             </div>
           </header>
 
-          <div className="ds-grid">
+          {s.rows.length > 0 && <div className="ds-grid">
             {s.rows.map((r) => (
               <div className={r.isNew ? 'ds-row ds-row-new' : 'ds-row'} key={r.label}>
                 <span className="ds-label">
@@ -372,32 +377,46 @@ export default function DatasheetTab({ vessel, calc, onPatch, onReset, isOverrid
                 </span>
               </div>
             ))}
-          </div>
+          </div>}
 
           {s.table && (
             <div className="ds-nozzles">
               <table>
                 <thead>
-                  <tr><th>Mark</th><th>Service</th><th>NPS</th><th>Qty</th><th>Class</th><th>OD mm</th><th>Wall mm</th><th>Reinforcement</th></tr>
+                  <tr>
+                    <th>Mark</th><th>Service</th><th>NPS</th><th>Qty</th><th>CL</th>
+                    <th>Flange — type · size · material</th>
+                    <th>Pipe / neck — size · sch · material</th>
+                    <th>RF pad — size · material</th>
+                    <th>Gasket</th>
+                    <th>Fasteners</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {vessel.nozzles.map((n) => {
-                    const rf = calc.thk.reinf.find((x) => x.mark === n.mark);
+                    const p = nozzleParts(vessel, calc, n);
                     return (
                       <tr key={n.mark}>
                         <td className="mono">{n.mark}</td>
                         <td>{n.service}</td>
-                        <td>{n.nps}</td>
+                        <td>{npsText(n.nps)}</td>
                         <td>{n.qty}</td>
                         <td>CL{n.cls ?? vessel.asmeClass}</td>
-                        <td>{rf ? rf.od.toFixed(0) : '—'}</td>
-                        <td>{rf ? rf.wall.toFixed(1) : '—'}</td>
-                        <td>{rf?.status === 'Pad required' ? `Pad ${rf.padWidth}×${rf.padThk}` : 'Self-reinforced'}</td>
+                        <td>{p.flange}</td>
+                        <td>{p.pipe}</td>
+                        <td>{p.pad}</td>
+                        <td>{p.gasket}</td>
+                        <td>{p.bolts}</td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
+              <p className="ds-nozzle-note">
+                Flange face RF · sizes, stud sizes and bolt counts per ASME B16.5 · spiral-wound (SW) gaskets SS316L/graphite ·
+                RF pads sized by UG-37 and shown as OD × thickness · fasteners are A193 B7 studs with A194 2H nuts, quoted per
+                joint (multiply by Qty for the vessel total) · NPS 20 and above use a neck fabricated from shell plate.
+              </p>
             </div>
           )}
         </section>
@@ -463,6 +482,87 @@ function display(vessel: Vessel, row: Row, draft: Record<string, string>): strin
   if (row.field === 'rtPolicy') return raw === 'Full' ? 'Full RT' : 'Spot RT';
   if (row.field === 'asmeClass') return `CL${raw}`;
   return raw || '—';
+}
+
+/* ── nozzle component schedule ── */
+
+type NozParts = { flange: string; pipe: string; pad: string; gasket: string; bolts: string };
+
+/** ASME B16.5 stud count by class and NPS. */
+const STUD_COUNT: Record<number, Record<string, number>> = {
+  150: { '1': 4, '1.5': 4, '2': 4, '3': 4, '4': 8, '6': 8, '8': 8, '10': 12, '12': 12, '14': 12, '16': 16, '18': 16, '20': 20, '24': 20 },
+  300: { '1': 4, '1.5': 4, '2': 8, '3': 8, '4': 8, '6': 12, '8': 12, '10': 16, '12': 16, '14': 20, '16': 20, '18': 24, '20': 24, '24': 24 },
+  600: { '1': 4, '1.5': 4, '2': 8, '3': 8, '4': 8, '6': 12, '8': 12, '10': 16, '12': 20, '14': 20, '16': 20, '18': 20, '20': 24, '24': 24 },
+};
+
+/** Metric stud diameter used for the B16.5 inch series. */
+const STUD_DIA: Record<number, Record<string, string>> = {
+  150: { '1': 'M14', '1.5': 'M14', '2': 'M16', '3': 'M16', '4': 'M16', '6': 'M20', '8': 'M20', '10': 'M24', '12': 'M24', '14': 'M27', '16': 'M27', '18': 'M30', '20': 'M30', '24': 'M33' },
+  300: { '1': 'M14', '1.5': 'M20', '2': 'M16', '3': 'M20', '4': 'M20', '6': 'M20', '8': 'M24', '10': 'M27', '12': 'M30', '14': 'M30', '16': 'M33', '18': 'M33', '20': 'M33', '24': 'M36' },
+  600: { '1': 'M14', '1.5': 'M20', '2': 'M16', '3': 'M20', '4': 'M27', '6': 'M27', '8': 'M30', '10': 'M33', '12': 'M33', '14': 'M36', '16': 'M39', '18': 'M42', '20': 'M42', '24': 'M48' },
+};
+
+const STUD_LEN: Record<string, number> = {
+  '1': 90, '1.5': 90, '2': 90, '3': 110, '4': 110, '6': 130, '8': 130,
+  '10': 160, '12': 160, '14': 180, '16': 180, '18': 210, '20': 210, '24': 240,
+};
+
+const npsText = (n: number) => `${n}″`;
+
+/** Nearest tabulated size at or below the nozzle size. */
+function fitKey<T>(map: Record<string, T>, nps: number): string {
+  if (map[String(nps)] !== undefined) return String(nps);
+  const sizes = Object.keys(map).map(Number).sort((a, b) => a - b);
+  const pick = [...sizes].reverse().find((s) => s <= nps) ?? sizes[0];
+  return String(pick);
+}
+
+function pipeSchedule(nps: number, cls: number): string {
+  if (nps <= 2) return 'Sch 80';
+  if (nps <= 4) return cls >= 600 ? 'Sch 80' : 'Sch 40';
+  if (nps <= 12) return cls >= 600 ? 'Sch 80' : 'STD';
+  return 'STD';
+}
+
+function studCount(cls: number, nps: number): number {
+  const t = STUD_COUNT[cls] ?? STUD_COUNT[300];
+  return t[fitKey(t, nps)];
+}
+
+function studDia(cls: number, nps: number): string {
+  const t = STUD_DIA[cls] ?? STUD_DIA[300];
+  return t[fitKey(t, nps)];
+}
+
+function studLen(nps: number): number {
+  return STUD_LEN[fitKey(STUD_LEN, nps)];
+}
+
+/** One row of the nozzle schedule: every pressure-containing component, by type, size and material. */
+function nozzleParts(v: Vessel, c: VesselCalc, n: NozzleSpec): NozParts {
+  const cls = n.cls ?? v.asmeClass;
+  const lined = String(v.liner ?? '').includes('316L');
+  const blind = /manway|flanged head|body flange|handhole/i.test(n.service);
+  const flangeType = blind ? 'BLRF' : n.nps <= 1.5 ? 'SW RF' : 'WNRF';
+
+  const flange = `${flangeType} · ${npsText(n.nps)} CL${cls} · ${lined ? 'SA-105N + 316L face' : 'SA-105N'}`;
+
+  const neckWall = c.thk.reinf.find((x) => x.mark === n.mark)?.wall;
+  const pipe = n.nps >= 20
+    ? `${npsText(n.nps)} plate · ${(neckWall ?? c.thk.tShell).toFixed(1)} mm · SA-516 Gr.70`
+    : n.nps >= 18
+      ? `${npsText(n.nps)} · ${(neckWall ?? 16).toFixed(1)} mm wall · ${lined ? 'SA-106 Gr.B + 316L lining' : 'SA-106 Gr.B'}`
+      : `${npsText(n.nps)} · ${pipeSchedule(n.nps, cls)} · ${lined ? 'SA-106 Gr.B + 316L lining' : 'SA-106 Gr.B'}`;
+
+  const rf = c.thk.reinf.find((x) => x.mark === n.mark);
+  const pad = rf && rf.padArea > 0
+    ? `Ø${Math.round(rf.od + 2 * rf.padWidth)} × ${rf.padThk} thk · ${lined ? 'SA-240 316L' : 'SA-516 Gr.70'}`
+    : '— self-reinforced';
+
+  const gasket = `SW ${blind ? 6 : 4.5} mm · ${npsText(n.nps)} CL${cls} · 316L/graphite`;
+  const bolts = `${studCount(cls, n.nps)} × ${studDia(cls, n.nps)} × ${studLen(n.nps)} · A193 B7 / A194 2H`;
+
+  return { flange, pipe, pad, gasket, bolts };
 }
 
 function thick(c: VesselCalc, key: string): string {
