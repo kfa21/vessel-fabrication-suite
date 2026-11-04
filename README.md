@@ -49,6 +49,27 @@ npm run dev      # http://localhost:3000
 npm run build    # type-check + production build
 ```
 
+## Excel workbook
+
+[`excel/Vessel-Fabrication-Suite.xlsx`](excel/Vessel-Fabrication-Suite.xlsx) is a single-vessel
+calculator with the same engineering basis as the app, driven entirely by live Excel formulas. Enter
+the datasheet in the yellow cells on **Input** and every result recalculates: no macros, no pasted
+answers. It ships pre-filled with 12-C01 so the expected output is visible on opening.
+
+| Sheet | Content |
+|---|---|
+| Input | Datasheet fields, design conditions, geometry, heads, boot and lining (the only sheet you edit) |
+| Design | UG-27/32/34 thickness table with utilisation, MAWP back-calculation and the UG-28 external-pressure screen with ring spacing |
+| Nozzles | Nozzle and manway schedule: neck, UG-37 area check, pad sizing, studs, flange and neck weights |
+| Weights / Components | Weight build-up by group and the part schedule in the app's component grouping |
+| Weld / Cost | Joint register, weld metal, arc and fit-up hours, then plate, consumables, labour, NDT, PWHT and paint |
+| Summary | One page: design result, quantities, weight, cost, manhours and datasheet-ready text |
+| Fleet / Lists | Static 28-vessel reference and every lookup table and rate |
+
+The workbook is generated, not hand-edited: `excel/build-workbook.mjs` and its modules build every
+sheet, style, validation and named range. Run `npm run excel` to regenerate the `.xlsx` after changing
+a formula, a rate or the pre-filled example, so revisions stay reviewable as small diffs.
+
 ## Engineering basis and assumptions
 
 - Thickness per ASME BPVC VIII Div.1: UG-27(c)(1)/(2), UG-32(d), UG-34(c)(1), UG-32(f) for the
