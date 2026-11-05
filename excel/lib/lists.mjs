@@ -38,14 +38,6 @@ const FLANGE_NPS = [1, 1.5, 2, 3, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 30];
 const FLANGE_MASS = [2.2, 3.2, 5.0, 9.0, 14.0, 24.0, 36.0, 50.0, 68.0, 82.0, 100.0, 120.0, 145.0, 195.0, 265.0];
 
 const RATES = [
-  [41, 'Plate rate — carbon steel', 1.35, '$/kg', 'rate_plate_cs'],
-  [42, 'Plate rate — stainless', 5.8, '$/kg', 'rate_plate_ss'],
-  [43, 'Fabrication labour rate', 42, '$/h', 'rate_hour'],
-  [44, 'Paint rate', 12.5, '$/m²', 'rate_paint'],
-  [45, 'PWHT rate', 0.22, '$/kg', 'rate_pwht_kg'],
-  [46, 'PWHT setup charge', 3400, '$', 'rate_pwht_setup'],
-  [47, 'NDT — full RT', 58, '$/m', 'rate_ndt_full'],
-  [48, 'NDT — spot RT', 34, '$/m', 'rate_ndt_spot'],
   [49, 'Steel density', 7850, 'kg/m³', 'rho'],
   [50, 'Elastic modulus', 200000, 'MPa', 'e_mod'],
   [51, 'Yield strength', 260, 'MPa', 'yield_mpa'],
@@ -192,34 +184,7 @@ export function buildLists(wb) {
   definedName(wb, 'Lists', '$B$71:$B$77', 'class_list');
   definedName(wb, 'Lists', '$C$71:$C$77', 'class_factor');
 
-  textCell(ws, 'B79', 'Internal lining rate', { bold: true });
-  textCell(ws, 'C79', 45, { align: 'right', fmt: '#,##0.00' });
-  textCell(ws, 'D79', '$/m²', { align: 'center', color: C.muted, size: 9 });
-  definedName(wb, 'Lists', '$C$79', 'rate_lining');
-  textCell(ws, 'B80', 'Weld consumables rate', { bold: true });
-  textCell(ws, 'C80', 5.2, { align: 'right', fmt: '#,##0.00' });
-  textCell(ws, 'D80', '$/kg', { align: 'center', color: C.muted, size: 9 });
-  definedName(wb, 'Lists', '$C$80', 'rate_consumable');
-
-  const weldConst = [
-    [81, 'SAW deposition rate', 4.6, 'kg/h', 'rate_saw'],
-    [82, 'FCAW deposition rate', 2.4, 'kg/h', 'rate_fcaw'],
-    [83, 'GTAW deposition rate', 0.45, 'kg/h', 'rate_gtaw'],
-    [84, 'SMAW deposition rate', 1.5, 'kg/h', 'rate_smaw'],
-    [85, 'Weld metal factor', 1.06, '', 'weld_factor'],
-    [86, 'Arc-time factor', 1.55, '', 'weld_arc_factor'],
-    [87, 'Fit-up hours per metre', 0.9, 'h/m', 'weld_fit_h'],
-    [88, 'Handling hours per joint', 0.35, 'h', 'weld_joint_h'],
-    [89, 'Plate factor — shell', 1.08, '', 'plate_factor_shell'],
-    [90, 'Plate factor — heads', 1.22, '', 'plate_factor_heads'],
-    [91, 'Plate factor — nozzles', 2.6, '', 'plate_factor_nozzle'],
-    [92, 'Plate factor — manways', 2.2, '', 'plate_factor_manway'],
-    [93, 'Plate factor — internals', 1.4, '', 'plate_factor_internals'],
-  ];
-  weldConst.forEach(([row, labelText, value, unit, name]) => {
-    textCell(ws, `B${row}`, labelText, { bold: true });
-    textCell(ws, `C${row}`, value, { align: 'right', fmt: '#,##0.00' });
-    textCell(ws, `D${row}`, unit, { align: 'center', color: C.muted, size: 9 });
-    definedName(wb, 'Lists', `$C$${row}`, name);
-  });
+  textCell(ws, 'B79', 'Commercial rates and weld-procedure settings moved to the Rates sheet.', { bold: true, wrap: true, color: C.muted });
+  ws.mergeCells('B79:D80');
+  ws.getRow(79).height = 28;
 }

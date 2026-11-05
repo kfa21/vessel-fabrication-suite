@@ -58,13 +58,28 @@ answers. It ships pre-filled with 12-C01 so the expected output is visible on op
 
 | Sheet | Content |
 |---|---|
-| Input | Datasheet fields, design conditions, geometry, heads, boot and lining (the only sheet you edit) |
+| Input | Datasheet fields, design conditions, geometry, heads, boot and lining |
 | Design | UG-27/32/34 thickness table with utilisation, MAWP back-calculation and the UG-28 external-pressure screen with ring spacing |
 | Nozzles | Nozzle and manway schedule: neck, UG-37 area check, pad sizing, studs, flange and neck weights |
-| Weights / Components | Weight build-up by group and the part schedule in the app's component grouping |
-| Weld / Cost | Joint register, weld metal, arc and fit-up hours, then plate, consumables, labour, NDT, PWHT and paint |
-| Summary | One page: design result, quantities, weight, cost, manhours and datasheet-ready text |
-| Fleet / Lists | Static 28-vessel reference and every lookup table and rate |
+| Weights / Components | Weight build-up by group, plus the part schedule with a source country and landed cost per line |
+| Rates | Shop manhour rate in BHD, FX, material/NDT/painting rates, weld-procedure rules, sourcing countries, export markets and shipping equipment |
+| Weld / Cost | Joint schedule timed by layer and procedure, then landed material, BHD labour, NDT, PWHT, paint and export logistics |
+| Logistics | Export cargo sizing, automatic road/sea unit selection, freight, customs, duty, insurance and documentation; import landed cost by country |
+| Summary | One page: design result, quantities, weight, delivered cost, manhours and datasheet-ready text |
+| Fleet / Lists | Static 28-vessel reference, technical lookups and plate stock |
+
+Rates is the commercial control panel. The shop manhour rate defaults to **2.00 BHD/h** and every
+labour line follows it. The weld rules are explicit: GTAW root, SMAW fill up to 20 mm, SAW above it,
+double-V from 12 mm, and back-gouging by manual grinding below 1200 mm bore or machine grinding at or
+above it. Source countries carry mill price, freight, duty, clearance, documents, insurance and lead
+time; the destination table carries sea distance, road distance, port-to-site distance and delivery
+charges. The equipment table is filtered by cargo length, width, height and weight, so the worked
+sheet selects the smallest suitable trailer or vessel and prices the route.
+
+To use it, enter the design on **Input**, pick a source country on each **Components** line, and choose
+the destination and mode on **Logistics**. The **Cost** and **Summary** sheets then show landed
+material, BHD labour, and the delivered cost at the client site. Defaults are a mixed India/China
+sourcing pattern and Saudi Arabia by road.
 
 The workbook is generated, not hand-edited: `excel/build-workbook.mjs` and its modules build every
 sheet, style, validation and named range. Run `npm run excel` to regenerate the `.xlsx` after changing

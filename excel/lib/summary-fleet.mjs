@@ -82,22 +82,24 @@ export function buildSummary(wb) {
   total(49, 'TOTAL WEIGHT', '=w_total', 'kg', '#,##0');
   line(50, 'Total weight', '=w_total/1000', 't', 'Rounded to 0.1 t on the register.', '0.00');
 
-  block(52, 'COST AND HOURS');
+  block(52, 'COST AND HOURS (BHD)');
   header(53);
-  line(54, 'Plate material', '=SUM(Cost!F6:F12)', 'USD', 'Shell, heads, nozzles, manways, internals, support and attachments.', '"$"#,##0');
-  line(55, 'Internal lining', '=cost_lining', 'USD', '', '"$"#,##0');
-  line(56, 'Weld consumables', '=cost_consumables', 'USD', '', '"$"#,##0');
-  line(57, 'Fabrication labour', '=cost_labour', 'USD', 'Deposition hours × shop rate.', '"$"#,##0');
-  line(58, 'NDT — radiography', '=cost_ndt', 'USD', '', '"$"#,##0');
-  line(59, 'Post-weld heat treatment', '=cost_pwht', 'USD', '', '"$"#,##0');
-  line(60, 'Surface preparation and paint', '=cost_paint', 'USD', '', '"$"#,##0');
-  total(61, 'TOTAL FABRICATED COST', '=cost_total', 'USD', '"$"#,##0');
-  line(62, 'Cost per kilogram', '=cost_per_kg', '$/kg', '', '"$"#,##0.00');
+  line(54, 'Landed raw material', '=SUM(Cost!F6:F13)', 'BHD', 'Shell, heads, nozzles, manways, internals, support, attachments and lining, imported.', '"BD "#,##0');
+  line(55, 'Weld consumables', '=cost_consumables', 'BHD', '', '"BD "#,##0');
+  line(56, 'Fabrication labour', '=cost_labour', 'BHD', 'Manhours × your shop rate of 2.00 BHD/h.', '"BD "#,##0');
+  line(57, 'NDT — radiography', '=cost_ndt', 'BHD', '', '"BD "#,##0');
+  line(58, 'Post-weld heat treatment', '=cost_pwht', 'BHD', '', '"BD "#,##0');
+  line(59, 'Surface preparation and paint', '=cost_paint', 'BHD', '', '"BD "#,##0');
+  line(60, 'Export logistics — land + sea', '=cost_export', 'BHD', 'Delivered to the client site.', '"BD "#,##0');
+  total(61, 'TOTAL FABRICATED + DELIVERED', '=cost_total', 'BHD', '"BD "#,##0');
+  line(62, 'Cost per kilogram', '=cost_per_kg', 'BHD/kg', '', '"BD "#,##0.00');
   line(63, 'Manhours', '=manhours', 'h', 'Weld hours plus fitting, nozzles, trays and PWHT.', '#,##0');
   line(64, 'Weld length', '=weld_length', 'm', '', '#,##0.0');
+  line(65, 'Import content', '=IF(cost_total>0,SUM(Cost!F6:F13)/cost_total,0)', '%', 'Share of delivered cost that is imported material.', '0.0%');
+  line(66, 'Export logistics share', '=IF(cost_total>0,cost_export/cost_total,0)', '%', 'Freight, duty, insurance, clearance and documentation.', '0.0%');
 
-  block(66, 'DATASHEET OUTPUT');
-  header(67);
+  block(68, 'DATASHEET OUTPUT');
+  header(69);
   const out = (r, labelText, formula, basis) => {
     textCell(ws, `B${r}`, labelText, { bold: true });
     ws.mergeCells(`C${r}:E${r}`);
@@ -108,18 +110,18 @@ export function buildSummary(wb) {
       // basis merged into the same cell text where useful
     }
   };
-  out(68, 'Shell / upper / cone', '="Shell "&t_shell&" mm · upper "&IF(in_ditop>0,t_shell_top&" mm","n/a")&" · cone "&IF(in_ditop>0,t_cone&" mm","n/a")');
-  out(69, 'Heads', '=IF(in_head_top="FLAT","Flat","2:1 SE")&" "&t_head_top&" mm / "&IF(in_head_bot="FLAT","Flat","2:1 SE")&" "&t_head_bot&" mm"');
-  out(70, 'Boot / drop leg', '=IF(in_drop_od>0,"Ø"&in_drop_od&" OD × "&TEXT(in_drop_len,"#,##0")&" T/T · "&t_drop&" mm shell","Not provided")');
-  out(71, 'Tray support rings', '=IF(in_trays>0,in_trays&" off · Ø"&in_di&" ID · 50 × 8 flat, welded to shell","No trays")');
-  out(72, 'Demister support ring', '=IF(in_demister="Yes","1 off · Ø"&in_di&" ID · 50 × 8 flat","Not provided")');
-  out(73, 'Vortex breaker', '=IF(G7>0,"Ø"&G7&" × "&G8&" mm high · vanes "&G9&" long","—")');
-  out(74, 'Nozzles / manways', '=Weights!D11&" process nozzles · "&Weights!D12&" manway(s) · "&COUNTIF(Nozzles!$AA$6:$AA$25,"Pad required")&" pad(s)"');
-  out(75, 'Code / RT / PWHT / CA', '="ASME VIII Div.1 · RT "&in_rt&" · PWHT "&in_pwht&" · CA "&in_ca&" mm"');
-  out(76, 'Service / unit', '=in_service&" · "&in_unit&" · "&in_kind&" ("&in_orient&")"');
-  out(77, 'Note 1', '=in_note1');
-  out(78, 'Note 2', '=in_note2');
-  out(79, 'Note 3', '=in_note3');
+  out(70, 'Shell / upper / cone', '="Shell "&t_shell&" mm · upper "&IF(in_ditop>0,t_shell_top&" mm","n/a")&" · cone "&IF(in_ditop>0,t_cone&" mm","n/a")');
+  out(71, 'Heads', '=IF(in_head_top="FLAT","Flat","2:1 SE")&" "&t_head_top&" mm / "&IF(in_head_bot="FLAT","Flat","2:1 SE")&" "&t_head_bot&" mm"');
+  out(72, 'Boot / drop leg', '=IF(in_drop_od>0,"Ø"&in_drop_od&" OD × "&TEXT(in_drop_len,"#,##0")&" T/T · "&t_drop&" mm shell","Not provided")');
+  out(73, 'Tray support rings', '=IF(in_trays>0,in_trays&" off · Ø"&in_di&" ID · 50 × 8 flat, welded to shell","No trays")');
+  out(74, 'Demister support ring', '=IF(in_demister="Yes","1 off · Ø"&in_di&" ID · 50 × 8 flat","Not provided")');
+  out(75, 'Vortex breaker', '=IF(G7>0,"Ø"&G7&" × "&G8&" mm high · vanes "&G9&" long","—")');
+  out(76, 'Nozzles / manways', '=Weights!D11&" process nozzles · "&Weights!D12&" manway(s) · "&COUNTIF(Nozzles!$AA$6:$AA$25,"Pad required")&" pad(s)"');
+  out(77, 'Code / RT / PWHT / CA', '="ASME VIII Div.1 · RT "&in_rt&" · PWHT "&in_pwht&" · CA "&in_ca&" mm"');
+  out(78, 'Service / unit', '=in_service&" · "&in_unit&" · "&in_kind&" ("&in_orient&")"');
+  out(79, 'Note 1', '=in_note1');
+  out(80, 'Note 2', '=in_note2');
+  out(81, 'Note 3', '=in_note3');
 
   // Derived helpers for the vortex breaker statement.
   textCell(ws, 'F4', 'DERIVED HELPERS', { bold: true, fill: C.slate, color: C.white });
@@ -144,7 +146,7 @@ export function buildSummary(wb) {
   });
 
   ws.pageSetup.orientation = 'portrait';
-  ws.pageSetup.printArea = 'A1:E79';
+  ws.pageSetup.printArea = 'A1:E81';
 }
 
 export function buildFleet(wb, fleet) {

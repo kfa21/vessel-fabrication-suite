@@ -24,12 +24,14 @@ export function buildReadme(wb) {
   kv('Design', 'UG-27/32/34 thickness table with utilisation, MAWP back-calculation, and the UG-28 external-pressure screen with stiffener-ring spacing.');
   kv('Nozzles', 'Nozzle and manway schedule: neck, reinforcement (UG-37), pad sizing, stud bolts, flange and neck weights.');
   kv('Weights', 'Weight build-up by group: shell courses, cone, heads, nozzles, manways, internals, support, attachments, transportation, boot and lining.');
-  kv('Components', 'Component schedule in the same grouping as the app, with size/basis and weight per line.');
-  kv('Weld', 'Weld categories, joint details, weld metal volume, deposition hours and NDT scope.');
-  kv('Cost', 'Plate and lining material, consumables, fabrication labour, NDT, PWHT, paint and total cost.');
-  kv('Summary', 'One-page output: design results, quantities, weights, cost, manhours and datasheet-ready text.');
+  kv('Components', 'Part schedule with cost group and source country per line. Each line carries mill price, freight, duty, insurance and clearance, giving landed cost.');
+  kv('Rates', 'Commercial control panel: BHD shop rate and FX, material/NDT/painting rates, weld-procedure rules, source countries, export markets and shipping equipment.');
+  kv('Weld', 'Joint schedule timed by layer: GTAW root, SMAW fill to the thickness threshold, SAW above, single/double-V per code, back-gouging by bore.');
+  kv('Cost', 'Landed material by group, consumables, BHD labour, NDT, PWHT, paint, export logistics and delivered total.');
+  kv('Logistics', 'Finished-goods export: cargo size, auto-selected road/sea unit, freight, customs, duty, insurance and documentation; import landed cost by country.');
+  kv('Summary', 'One-page output: design results, quantities, weights, delivered cost, manhours and datasheet-ready text.');
   kv('Fleet', 'Static reference table of the 28 vessels in the project register (read-only snapshot, not formula-driven).');
-  kv('Lists', 'Lookup tables: plate gauges, allowable stress vs temperature, pipe OD/wall, flange masses, stud bolts, cost rates. Edit here to revise the basis.');
+  kv('Lists', 'Technical lookups: plate gauges, allowable stress vs temperature, pipe OD/wall, flange masses, stud bolts, plate stock. Commercial rates live on Rates.');
 
   h('ENGINEERING BASIS (as implemented in the formulas)');
   kv('Shell', 'UG-27(c)(1) circumferential: t = P·R / (S·E − 0.6P) + CA. Longitudinal check: t = P·R / (2S·E + 0.4P) + CA. R is the inside radius plus corrosion allowance.');
@@ -39,10 +41,12 @@ export function buildReadme(wb) {
   kv('External pressure', 'UG-28 screen using the app’s simplified elastic curve (A = 0.125/(Ro/t)^1.5 capped at 0.1, B = 0.667·Sy·A, Pa = 4B/[3(Do/t)]). Unstiffened length = T/T + Di/4. Required pressure is 101.3 kPa under full vacuum, otherwise 25 kPa.');
   kv('Nozzles', 'UG-37 area replacement: available area in shell excess, neck excess and inward nozzle projection against required area A = d·tr·F + 2·tn·tr·F·(1 − fr1). Pads are sized from the shortfall with a 2:1 spread.');
   kv('Weights', 'Steel density 7.85 g/cm³. Shell and head weights from mid-surface area × thickness. Nozzles include neck pipe, flange and pad. Supports, ladders, trunnions and transport saddles follow the app model.');
-  kv('Weld and cost', 'Weld metal from joint cross-section × length × 1.15 deposition factor; hours from deposition rate; cost from plate rate, consumables, labour rate, NDT, PWHT and paint rates in Lists.');
+  kv('Weld', 'Root pass GTAW; fill SMAW up to 20 mm and SAW above; double-V from 12 mm (single-V below with back-gouging); manual grinding below 1200 mm bore, machine grinding above. Hours = metal ÷ process rate × 1.55 + fit-up 0.9 h/m + 0.35 h/joint + gouging.');
+  kv('Cost', 'Material is landed per source country (mill price × group factor + freight + duty + insurance + clearance), then converted at 0.376 BHD/USD. Labour = manhours × 2.00 BHD/h. Export logistics is added from the Logistics sheet.');
 
   h('VERIFICATION STATUS');
-  p('The workbook was recalculated in Excel and checked against the app for vessel 12-C01 (Platforming Debutanizer, 1700/1100 mm ID, 26 900 mm T/T, 13.5 kg/cm²g at 265 °C, SA-516-70, spot RT, no PWHT, skirt). Shell 14 mm, upper shell 10 mm, cone 16 mm, top head 10 mm and bottom head 14 mm match the app’s thickness table exactly. Governing MAWP is 14.9 kg/cm²g. The external screen gives 194.6 kPa allowable against 101.3 kPa required, so no stiffener rings are needed. Total weight is 20 635 kg versus 20 550 kg in the app (+0.4%; this workbook includes the boot/drop-leg weight, which the app total omits). Budgetary cost is about $101k versus $106k in the app (−4%), because the weld plan here is geometric rather than the app’s full joint register. The full recalculation produced zero formula errors.');
+  p('The workbook was recalculated in Excel and checked against the app for vessel 12-C01 (Platforming Debutanizer, 1700/1100 mm ID, 26 900 mm T/T, 13.5 kg/cm²g at 265 °C, SA-516-70, spot RT, no PWHT, skirt). Shell 14 mm, upper shell 10 mm, cone 16 mm, top head 10 mm and bottom head 14 mm match the app’s thickness table exactly. Governing MAWP is 14.9 kg/cm²g; the external screen gives 194.6 kPa allowable against 101.3 kPa required, so no stiffener rings are needed. Total weight is 20 635 kg versus 20 550 kg in the app (+0.4%; this workbook includes the boot/drop-leg weight, which the app total omits).');
+  p('The weld plan now times 519.8 h against 542 h in the app, using GTAW roots, SMAW fill to 20 mm, SAW above, single-V below 12 mm and machine back-gouging at the 1700 mm bore. Landed material is $48 450 (BD 18 217) from the default India / China / Bahrain sourcing. Delivered cost is BD 31 311 (about $83k), including BD 4 130 of export logistics to Saudi Arabia by road; labour is 1 207 h at 2.00 BHD/h. Excel recalculated with zero formula errors. Sea and land+sea routes were also recalculated with zero errors.');
   p('The workbook is a calculation aid, not a substitute for a reviewed design: verify nozzle loads, wind/seismic, support local stresses, MDMT impact requirements and any client specification before issue.');
 
   h('REBUILDING AND REVISION');

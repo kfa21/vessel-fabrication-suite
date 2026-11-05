@@ -167,6 +167,18 @@ export function listValidation(cell, items) {
   };
 }
 
+export function rangeValidation(cell, rangeName) {
+  cell.dataValidation = {
+    type: 'list',
+    allowBlank: true,
+    formulae: [rangeName],
+    showErrorMessage: true,
+    errorStyle: 'stop',
+    errorTitle: 'Invalid value',
+    error: 'Pick a value from the drop-down list.',
+  };
+}
+
 export function numberValidation(cell, min, max, hint) {
   cell.dataValidation = {
     type: 'decimal',
