@@ -1,8 +1,13 @@
 import type { Vessel } from '../data/vessels';
 import {
   ALLOYS, COST_RATES, E_MODULUS_MPA, KGCM2_TO_MPA, PLATE_GAUGES, PLATE_STOCK,
-  PROCESS_RATE, STEEL_DENSITY, STRESS_TABLE, YIELD_MPA, flangeMass, pipeOD, pipeWall,
+  STEEL_DENSITY, STRESS_TABLE, YIELD_MPA, flangeMass, pipeOD, pipeWall,
 } from '../data/materials';
+import {
+  DEFAULT_LOGISTICS, DEFAULT_RATES, DEFAULT_SOURCE, GCC,
+  type CostGroup, type CountryRate, type LogisticsChoice, type Rates,
+  type ShippingMode, type ShippingUnit, type WeldProcess,
+} from '../data/rates';
 
 /* ────────────────────────────── basic helpers ────────────────────────────── */
 
@@ -337,10 +342,17 @@ export interface WeightBreak {
 
 export interface WeldRow {
   no: string; joint: string; category: 'A' | 'B' | 'C' | 'D' | 'Att.'; type: string;
-  qty: number; lengthM: number; thk: number; process: string; e: number;
-  rtPct: number; metalKg: number; hours: number;
+  qty: number; lengthM: number; thk: number; process: string; jointDetail: string;
+  rootProcess: WeldProcess | '—'; fillProcess: WeldProcess | '—';
+  backGouge: boolean; gougeMethod: 'Manual' | 'Machine' | '—';
+  e: number; rtPct: number;
+  rootMetalKg: number; fillMetalKg: number; metalKg: number;
+  rootHours: number; fillHours: number; gougeHours: number; fitHours: number; hours: number;
 }
-export interface WeldSummary { rows: WeldRow[]; totalLengthM: number; totalMetalKg: number; hours: number; arcHours: number }
+export interface WeldSummary {
+  rows: WeldRow[]; totalLengthM: number; totalMetalKg: number; hours: number; arcHours: number;
+  rootHours: number; fillHours: number; gougeHours: number; fitHours: number;
+}
 
 export interface NdtRow {
   no: string; method: string; item: string; extent: string; stage: string;
@@ -355,7 +367,55 @@ export interface PwhtPlan {
 
 export interface Stage { id: string; name: string; days: number; start: number; end: number; resource: string; gate: string }
 
-export interface CostBreak { plate: number; consumables: number; labour: number; ndt: number; pwht: number; paint: number; total: number }
+export interface CostBreak {
+  plate: number; materialUsd: number; materialBhd: number;
+  consumables: number; labour: number; labourBhd: number;
+  ndt: number; pwht: number; paint: number;
+  exportUsd: number; exportBhd: number;
+  deliveredUsd: number; deliveredBhd: number;
+  total: number;
+}
+
+export interface PartSourcingRow {
+  no: string; description: string; group: CostGroup; qty: number; weight: number;
+  source: string; region: string; leadDays: number;
+  millUsd: number; freightUsd: number; dutyUsd: number; insuranceUsd: number; clearanceUsd: number;
+  landedUsd: number; landedBhd: number; usdPerKg: number;
+}
+
+export interface ImportCountryRow {
+  country: string; region: string; leadDays: number;
+  weight: number; millUsd: number; freightUsd: number; dutyUsd: number;
+  insuranceUsd: number; clearanceUsd: number; landedUsd: number; landedBhd: number; sharePct: number;
+}
+
+export interface ShipmentLine { label: string; usd: number }
+
+export interface ShipmentPlan {
+  destination: DestinationView;
+  requestedMode: ShippingMode;
+  resolvedMode: Exclude<ShippingMode, 'Auto'>;
+  cargo: { lengthM: number; widthM: number; heightM: number; weightT: number; volumeM3: number; freightT: number };
+  seaUnit?: ShippingUnit;
+  landUnit?: ShippingUnit;
+  seaTrips: number;
+  roadTrips: number;
+  lines: ShipmentLine[];
+  totalUsd: number;
+  totalBhd: number;
+  fabricatedValueUsd: number;
+}
+
+export interface DestinationView {
+  country: string; port: string; seaNm: number; roadKm: number; portKm: number;
+  dutyPct: number; customsPct: number; insurancePct: number;
+}
+
+export interface CommercialContext {
+  rates?: Rates;
+  sourcing?: Record<string, string>;
+  logistics?: LogisticsChoice;
+}
 
 export interface VesselCalc {
   vessel: Vessel;
@@ -368,11 +428,154 @@ export interface VesselCalc {
   pwht: PwhtPlan;
   schedule: Stage[];
   cost: CostBreak;
+  material: PartSourcingRow[];
+  importSummary: ImportCountryRow[];
+  shipment: ShipmentPlan;
+  rates: Rates;
+  logistics: LogisticsChoice;
   manhours: number;
   paintM2: number;
   steelGrade: string;
   calc: {
     totalLengthM: number;
+  };
+}
+
+/* ───────────────────── sourcing and delivered-cost helpers ───────────────────── */
+
+export function sourceParts(parts: Part[], rates: Rates, sourcing: Record<string, string>): PartSourcingRow[] {
+  const totalWeight = parts.reduce((a, p) => a + p.totalWt, 0) || 1;
+  return parts.map((part) => {
+    const group = part.group as CostGroup;
+    const countryName = sourcing[part.no] ?? DEFAULT_SOURCE[group] ?? 'India';
+    const c = rates.countries.find((x) => x.country === countryName) ?? rates.countries[0];
+    const unitRate = group === 'Lining' ? c.ssUsdKg : c.csUsdKg;
+    const factor = rates.factors[group] ?? 1;
+    const weight = part.totalWt;
+    const mill = weight * unitRate * factor;
+    const freight = weight * c.freightUsdKg;
+    const duty = (mill + freight) * c.dutyPct / 100;
+    const insurance = (mill + freight + duty) * c.insurancePct / 100;
+    const clearance = (c.clearanceUsd + c.docsUsd) * (weight / totalWeight);
+    const landed = mill + freight + duty + insurance + clearance;
+    return {
+      no: part.no, description: part.description, group, qty: part.qty, weight: round(weight, 1),
+      source: c.country, region: c.region, leadDays: c.leadDays,
+      millUsd: round(mill, 0), freightUsd: round(freight, 0), dutyUsd: round(duty, 0),
+      insuranceUsd: round(insurance, 0), clearanceUsd: round(clearance, 0),
+      landedUsd: round(landed, 0), landedBhd: round(landed * rates.fxBhdPerUsd, 0),
+      usdPerKg: weight > 0 ? round(landed / weight, 2) : 0,
+    };
+  });
+}
+
+export function summariseImport(rows: PartSourcingRow[]): ImportCountryRow[] {
+  const total = rows.reduce((a, r) => a + r.landedUsd, 0) || 1;
+  const map = new Map<string, ImportCountryRow>();
+  rows.forEach((r) => {
+    const line = map.get(r.source) ?? {
+      country: r.source, region: r.region, leadDays: r.leadDays,
+      weight: 0, millUsd: 0, freightUsd: 0, dutyUsd: 0,
+      insuranceUsd: 0, clearanceUsd: 0, landedUsd: 0, landedBhd: 0, sharePct: 0,
+    };
+    line.weight = round(line.weight + r.weight, 0);
+    line.millUsd += r.millUsd;
+    line.freightUsd += r.freightUsd;
+    line.dutyUsd += r.dutyUsd;
+    line.insuranceUsd += r.insuranceUsd;
+    line.clearanceUsd += r.clearanceUsd;
+    line.landedUsd += r.landedUsd;
+    line.landedBhd += r.landedBhd;
+    map.set(r.source, line);
+  });
+  return [...map.values()]
+    .map((r) => ({ ...r, sharePct: round((r.landedUsd / total) * 100, 1) }))
+    .sort((a, b) => b.landedUsd - a.landedUsd);
+}
+
+/** Cheapest landed source for every part, ignoring the shared clearance allocation. */
+export function bestSourceMap(parts: Part[], rates: Rates): Record<string, string> {
+  const map: Record<string, string> = {};
+  parts.forEach((part) => {
+    const group = part.group as CostGroup;
+    const factor = rates.factors[group] ?? 1;
+    let best = rates.countries[0]?.country ?? 'India';
+    let bestCost = Infinity;
+    rates.countries.forEach((c) => {
+      const unit = group === 'Lining' ? c.ssUsdKg : c.csUsdKg;
+      const mill = unit * factor;
+      const freight = c.freightUsdKg;
+      const duty = (mill + freight) * c.dutyPct / 100;
+      const insurance = (mill + freight + duty) * c.insurancePct / 100;
+      const cost = mill + freight + duty + insurance;
+      if (cost < bestCost) { bestCost = cost; best = c.country; }
+    });
+    map[part.no] = best;
+  });
+  return map;
+}
+
+export function planShipment(
+  cargo: ShipmentPlan['cargo'], rates: Rates, logistics: LogisticsChoice, fabricatedValueUsd: number,
+): ShipmentPlan {
+  const dest = rates.destinations.find((d) => d.country === logistics.destination) ?? rates.destinations[0];
+  const resolvedMode: Exclude<ShippingMode, 'Auto'> = logistics.mode === 'Auto'
+    ? (GCC.includes(dest.country) ? 'Land' : 'Land+Sea')
+    : logistics.mode;
+  const fits = (u: ShippingUnit) =>
+    cargo.lengthM <= u.maxL + 1e-9 && cargo.widthM <= u.maxW + 1e-9
+    && cargo.heightM <= u.maxH + 1e-9 && cargo.weightT <= u.maxT + 1e-9;
+  const pick = (mode: 'Land' | 'Sea') => rates.equipment
+    .filter((u) => u.mode === mode && fits(u))
+    .sort((a, b) => a.maxL * a.maxW * a.maxH - b.maxL * b.maxW * b.maxH)[0];
+
+  const needsSea = resolvedMode === 'Sea' || resolvedMode === 'Land+Sea';
+  const seaUnit = needsSea ? pick('Sea') : undefined;
+  const landUnit = pick('Land');
+  const seaTrips = seaUnit ? Math.max(1, Math.ceil(cargo.weightT / seaUnit.maxT)) : 0;
+  const roadTrips = landUnit ? Math.max(1, Math.ceil(cargo.weightT / landUnit.maxT)) : 0;
+
+  const origin = landUnit
+    ? (landUnit.baseUsd + landUnit.perKm * (resolvedMode === 'Land' ? dest.roadKm : 25)) * roadTrips
+    : 0;
+  const ocean = seaUnit
+    ? (seaUnit.baseUsd + seaUnit.perT * cargo.weightT + seaUnit.perNm * dest.seaNm) * seaTrips
+    : 0;
+  const destinationHaul = landUnit && resolvedMode === 'Land+Sea'
+    ? (landUnit.baseUsd + landUnit.perKm * dest.portKm) * roadTrips : 0;
+  const handling = seaUnit ? dest.handlingUsd * seaTrips : 0;
+  const broker = dest.brokerUsd * Math.max(1, seaTrips);
+  const customs = fabricatedValueUsd * dest.customsPct / 100;
+  const duty = fabricatedValueUsd * dest.dutyPct / 100;
+  const insuranceBase = fabricatedValueUsd + origin + ocean + destinationHaul + handling + broker + customs + duty;
+  const insurance = insuranceBase * dest.insurancePct / 100;
+  const docs = dest.docsUsd * Math.max(1, seaTrips);
+
+  const lines: ShipmentLine[] = [
+    { label: 'Origin inland haul — works to port', usd: round(origin, 0) },
+    { label: 'Ocean freight — port to port', usd: round(ocean, 0) },
+    { label: 'Destination inland haul', usd: round(destinationHaul, 0) },
+    { label: 'Port handling and stevedoring', usd: round(handling, 0) },
+    { label: 'Customs clearance / broker', usd: round(broker, 0) },
+    { label: 'Destination customs', usd: round(customs, 0) },
+    { label: 'Import duty', usd: round(duty, 0) },
+    { label: 'Cargo insurance', usd: round(insurance, 0) },
+    { label: 'Documentation and legalisation', usd: round(docs, 0) },
+  ];
+  if (needsSea && !seaUnit) lines.push({ label: 'No sea unit fits the cargo — split or permits required', usd: 0 });
+  if (!landUnit) lines.push({ label: 'No road unit fits the cargo — split or permits required', usd: 0 });
+
+  const totalUsd = round(lines.reduce((a, l) => a + l.usd, 0), 0);
+  return {
+    destination: {
+      country: dest.country, port: dest.port, seaNm: dest.seaNm, roadKm: dest.roadKm,
+      portKm: dest.portKm, dutyPct: dest.dutyPct, customsPct: dest.customsPct,
+      insurancePct: dest.insurancePct,
+    },
+    requestedMode: logistics.mode, resolvedMode, cargo,
+    seaUnit, landUnit, seaTrips, roadTrips, lines,
+    totalUsd, totalBhd: round(totalUsd * rates.fxBhdPerUsd, 0),
+    fabricatedValueUsd: round(fabricatedValueUsd, 0),
   };
 }
 
@@ -383,7 +586,10 @@ const headWeight = (di: number, t: number, kind: 'SE' | 'FLAT' | 'CONE'): number
   return area * (t / 1000) * STEEL_DENSITY;
 };
 
-export function buildVessel(v: Vessel, opt: CalcOptions, pwhtOn: boolean): VesselCalc {
+export function buildVessel(v: Vessel, opt: CalcOptions, pwhtOn: boolean, commercial: CommercialContext = {}): VesselCalc {
+  const rates = commercial.rates ?? DEFAULT_RATES;
+  const sourcing = commercial.sourcing ?? {};
+  const logistics = commercial.logistics ?? DEFAULT_LOGISTICS;
   const thk = calcThickness(v, opt);
   const twoDiameter = !!v.diTop && v.diTop !== v.di;
   const lowerLen = twoDiameter ? v.tt * 0.55 : v.tt;
@@ -587,77 +793,135 @@ export function buildVessel(v: Vessel, opt: CalcOptions, pwhtOn: boolean): Vesse
     total: round(shellW + headsW + nozW + mwW + intW + supW + attW + liningW, 0),
   };
 
-  /* ── welds ── */
+  /* ── welds — root/fill layers, joint type and back-gouging ── */
   const weldRows: WeldRow[] = [];
   let wno = 0;
+  const rules = rates.weld;
+  const gougeMethodFor = (diameter: number): 'Manual' | 'Machine' =>
+    diameter >= rules.gougeDia ? 'Machine' : 'Manual';
+
   const addWeld = (joint: string, category: WeldRow['category'], type: string, qty: number,
-    lengthM: number, t: number, process: string, e: number, rtPct: number, groove: number) => {
+    lengthM: number, t: number, e: number, rtPct: number,
+    opts: { kind?: 'butt' | 'fullpen' | 'fillet'; detail?: string; grooveArea?: number; backGouge?: boolean; diameter?: number } = {}) => {
+    const kind = opts.kind ?? 'butt';
+    const autoDouble = t >= rules.doubleVMin;
+    const jointDetail = opts.detail
+      ?? (kind === 'fillet' ? `Fillet, ${Math.max(6, Math.round(t))} mm leg`
+        : kind === 'fullpen' ? 'Single-V full-pen'
+          : autoDouble ? 'Double-V butt' : 'Single-V butt');
+    const groove = opts.grooveArea
+      ?? (kind === 'fillet' ? 0.5 * t * t
+        : jointDetail.startsWith('Double') ? 0.35 * t * t + 2 * t : 0.58 * t * t);
+    const rootArea = kind === 'fillet' ? 0 : Math.min(groove, rules.rootArea);
+    const fillArea = Math.max(0, groove - rootArea);
+    const rootProcess: WeldProcess | '—' = kind === 'fillet' ? 'FCAW' : rules.rootProcess;
+    const fillProcess: WeldProcess = kind === 'fillet'
+      ? 'FCAW'
+      : (t <= rules.fillThreshold ? rules.fillLow : rules.fillHigh);
+    const areaFactor = lengthM * 1000 * rules.depositFactor * 7.85e-6;
+    const rootMetalKg = areaFactor * rootArea;
+    const fillMetalKg = areaFactor * fillArea;
+    const rootHours = rootMetalKg / (rules.rates[rootProcess] ?? 2) * rules.arcFactor;
+    const fillHours = fillMetalKg / (rules.rates[fillProcess] ?? 2) * rules.arcFactor;
+    const backGouge = opts.backGouge
+      ?? (kind === 'butt' && !autoDouble && (opts.diameter ?? v.di) >= 0);
+    const gougeMethod: 'Manual' | 'Machine' | '—' = backGouge
+      ? gougeMethodFor(opts.diameter ?? v.di) : '—';
+    const gougeHours = backGouge
+      ? lengthM * (gougeMethod === 'Machine' ? rules.gougeMachine : rules.gougeManual)
+      : 0;
+    const fitHours = lengthM * rules.fitPerM + qty * rules.jointSetup;
+    const metalKg = rootMetalKg + fillMetalKg;
+    const hours = rootHours + fillHours + gougeHours + fitHours;
     wno += 1;
-    const metalKg = lengthM * 1000 * groove * 1.06 * 7.85e-6;
-    const rate = PROCESS_RATE[process] ?? 2;
-    const hours = metalKg / rate * 1.55 + lengthM * 0.9 + qty * 0.35;
     weldRows.push({
-      no: `W-${String(wno).padStart(2, '0')}`, joint, category, type, qty, lengthM: round(lengthM, 1),
-      thk: t, process, e, rtPct, metalKg: round(metalKg, 1), hours: round(hours, 1),
+      no: `W-${String(wno).padStart(2, '0')}`, joint, category, type,
+      qty, lengthM: round(lengthM, 1), thk: t,
+      process: kind === 'fillet' ? 'FCAW' : `${rootProcess}/${fillProcess}`,
+      jointDetail, rootProcess, fillProcess, backGouge, gougeMethod,
+      e, rtPct,
+      rootMetalKg: round(rootMetalKg, 2), fillMetalKg: round(fillMetalKg, 2), metalKg: round(metalKg, 2),
+      rootHours: round(rootHours, 1), fillHours: round(fillHours, 1),
+      gougeHours: round(gougeHours, 1), fitHours: round(fitHours, 1), hours: round(hours, 1),
     });
   };
 
-  const gArea = (t: number) => 0.35 * t * t + 2 * t; // double-V 60°, 2 mm root gap, mm²
   const rtPct = thk.e >= 1 ? 100 : thk.e >= 0.85 ? 20 : 0;
 
   addWeld('Longitudinal shell seams (Category A)', 'A', 'Double-welded butt, Type 1', shell.plateCount,
-    shell.longSeamM + (shellTop?.longSeamM ?? 0), thk.tShell, 'SAW', thk.e, rtPct, gArea(thk.tShell));
+    shell.longSeamM + (shellTop?.longSeamM ?? 0), thk.tShell, thk.e, rtPct);
   addWeld('Circumferential shell seams (Category B)', 'B', 'Double-welded butt, Type 1',
-    Math.max(1, shell.courses.length - 1) + (shellTop ? shellTop.courses.length : 0),
-    shell.girthSeamM + (shellTop?.girthSeamM ?? 0), thk.tShell, 'SAW', thk.e, rtPct, gArea(thk.tShell));
-  addWeld('Head-to-shell closure (Category A)', 'A', 'Double-welded butt, Type 1', 2,
-    (Math.PI * (v.di + thk.tShell) * 2) / 1000, thk.tHeadBot, 'SAW', thk.e, rtPct, gArea(thk.tHeadBot));
+    Math.max(1, shell.courses.length - 1), shell.girthSeamM, thk.tShell, thk.e, rtPct);
+  addWeld('Bottom head-to-shell closure (Category A)', 'A', 'Double-welded butt, Type 1', 2,
+    (Math.PI * (v.di + thk.tShell) * 2) / 1000, thk.tHeadBot, thk.e, rtPct);
+  addWeld('Top head-to-shell closure (Category A)', 'A', 'Double-welded butt, Type 1', 2,
+    (Math.PI * ((v.diTop ?? v.di) + thk.tShellTop) * 2) / 1000, thk.tHeadTop, thk.e, rtPct,
+    { diameter: v.diTop ?? v.di });
   if (shellTop) {
+    addWeld('Upper shell longitudinal seams (Category A)', 'A', 'Double-welded butt, Type 1', shellTop.plateCount,
+      shellTop.longSeamM, thk.tShellTop, thk.e, rtPct, { diameter: v.diTop ?? v.di });
+    addWeld('Upper shell circumferential seams (Category B)', 'B', 'Double-welded butt, Type 1',
+      Math.max(1, shellTop.courses.length - 1), shellTop.girthSeamM, thk.tShellTop, thk.e, rtPct,
+      { diameter: v.diTop ?? v.di });
     addWeld('Cone-to-shell seams (Category A/B)', 'A', 'Double-welded butt, Type 1', 2,
-      (Math.PI * (v.di + v.diTop!) / 1000) * 0.98, thk.tCone, 'SAW', thk.e, rtPct, gArea(thk.tCone));
+      (Math.PI * (v.di + v.diTop!) / 1000) * 0.98, thk.tCone, thk.e, rtPct);
   }
   const nozzleCount = v.nozzles.reduce((a, nz) => a + nz.qty, 0);
   addWeld('Nozzle neck to shell/head — full penetration (Category D)', 'D', 'Full-pen groove + fillet',
     nozzleCount, v.nozzles.reduce((a, nz) => a + (Math.PI * pipeOD(nz.nps) * nz.qty) / 1000, 0),
-    thk.tShell, 'FCAW', 1.0, 100, gArea(Math.min(thk.tShell, 20)));
+    thk.tShell, 1.0, 100,
+    { kind: 'fullpen', backGouge: false, grooveArea: 0.58 * Math.min(thk.tShell, 20) ** 2 });
+  const nozzleT = Math.min(20, pipeWall(6, v.asmeClass));
   addWeld('Nozzle flange to neck (Category C)', 'C', 'Butt weld, Type 1', nozzleCount,
     v.nozzles.reduce((a, nz) => a + (Math.PI * pipeOD(nz.nps) * nz.qty) / 1000, 0),
-    Math.min(20, pipeWall(6, v.asmeClass)), 'GTAW', 1.0, 0, gArea(Math.min(20, pipeWall(6, v.asmeClass)), ), );
+    nozzleT, 1.0, 0,
+    { detail: 'Single-V butt', backGouge: false, grooveArea: 0.35 * nozzleT * nozzleT + 2 * nozzleT });
   addWeld('Internal attachment welds — tray rings, baffles, vortex breaker', 'Att.', 'Fillet, 6-8 mm leg',
     Math.max(1, v.trays ?? 8), (Math.PI * (v.di / 1000) * Math.max(1, v.trays ?? 4)) * 1.4,
-    8, 'FCAW', 0.85, 0, 0.5 * 8 * 8);
+    8, 0.85, 0, { kind: 'fillet' });
   if (v.support === 'Skirt') {
     addWeld('Skirt-to-shell closure + insulation ring clips', 'Att.', 'Fillet + partial-pen',
-      1, Math.PI * (v.di / 1000) * 2.2 + 40, Math.max(8, thk.tShell * 0.7), 'FCAW', 0.85, 0, 0.5 * 10 * 10);
+      1, Math.PI * (v.di / 1000) * 2.2 + 40, Math.max(8, thk.tShell * 0.7), 0.85, 0,
+      { kind: 'fillet', grooveArea: 50 });
   } else if (v.support === 'Saddles') {
     addWeld('Saddle wear plate to shell — continuous fillet both sides (Category Att.)', 'Att.',
-      'Continuous fillet, 10 mm leg', 2, 2 * (sadW / 1000) * 2 * 1.15, Math.max(10, thk.tShell), 'FCAW', 0.85, 0, 0.5 * 10 * 10);
+      'Continuous fillet, 10 mm leg', 2, 2 * (sadW / 1000) * 2 * 1.15, Math.max(10, thk.tShell), 0.85, 0,
+      { kind: 'fillet' });
     addWeld('Saddle web-to-base, gusset and stiffener welds (Category Att.)', 'Att.', 'Fillet, 8-10 mm leg',
-      2, 4 * (sadH / 1000) + 4 * (sadW / 1000), 12, 'FCAW', 0.85, 0, 0.5 * 9 * 9);
+      2, 4 * (sadH / 1000) + 4 * (sadW / 1000), 9, 0.85, 0, { kind: 'fillet' });
   } else {
     addWeld('Leg-to-shell pads + gusset welds (Category Att.)', 'Att.', 'Fillet, 8 mm leg',
-      4, 4 * (Math.PI * 0.168) + 4 * 1.2, Math.max(8, thk.tShell), 'FCAW', 0.85, 0, 0.5 * 8 * 8);
+      4, 4 * (Math.PI * 0.168) + 4 * 1.2, 8, 0.85, 0, { kind: 'fillet' });
   }
   if (!horiz) {
     addWeld('Temporary transportation saddle cradles + tie-down lugs', 'Att.',
-      'Fillet, 8 mm leg — temporary, removed after erection', 2, 4 * (sadW / 1000) + 2 * 1.6, 10, 'FCAW', 0.85, 0, 0.5 * 8 * 8);
+      'Fillet, 8 mm leg — temporary, removed after erection', 2, 4 * (sadW / 1000) + 2 * 1.6, 8, 0.85, 0,
+      { kind: 'fillet' });
   }
   if (thk.external.ringsRequired > 0) {
     addWeld('Vacuum stiffener rings to shell', 'Att.', 'Continuous + intermittent fillet',
-      thk.external.ringsRequired, Math.PI * (v.di / 1000) * thk.external.ringsRequired * 0.62, 12, 'FCAW', 0.85, 0, 0.5 * 10 * 10);
+      thk.external.ringsRequired, Math.PI * (v.di / 1000) * thk.external.ringsRequired * 0.62, 10, 0.85, 0,
+      { kind: 'fillet' });
   }
   if (v.dropLeg) {
     addWeld('Drop leg shell + head seams', 'A', 'Double-welded butt, Type 1', 3,
-      (Math.PI * (v.dropLeg.od / 1000)) * 2.2, Math.max(8, thk.tShell * 0.65), 'SAW', thk.e, rtPct, gArea(Math.max(8, thk.tShell * 0.65)));
+      (Math.PI * (v.dropLeg.od / 1000)) * 2.2, Math.max(8, thk.tShell * 0.65), thk.e, rtPct,
+      { diameter: v.dropLeg.od });
   }
 
   const totalLengthM = weldRows.reduce((a, r) => a + r.lengthM, 0);
   const totalMetalKg = weldRows.reduce((a, r) => a + r.metalKg, 0);
-  const arcHours = weldRows.reduce((a, r) => a + r.metalKg / (PROCESS_RATE[r.process] ?? 2), 0);
+  const rootHours = weldRows.reduce((a, r) => a + r.rootHours, 0);
+  const fillHours = weldRows.reduce((a, r) => a + r.fillHours, 0);
+  const gougeHours = weldRows.reduce((a, r) => a + r.gougeHours, 0);
+  const fitHours = weldRows.reduce((a, r) => a + r.fitHours, 0);
+  const arcHours = rootHours + fillHours;
   const hours = weldRows.reduce((a, r) => a + r.hours, 0);
   const weld: WeldSummary = {
     rows: weldRows, totalLengthM: round(totalLengthM, 1), totalMetalKg: round(totalMetalKg, 1),
     hours: round(hours, 0), arcHours: round(arcHours, 0),
+    rootHours: round(rootHours, 0), fillHours: round(fillHours, 0),
+    gougeHours: round(gougeHours, 0), fitHours: round(fitHours, 0),
   };
 
   /* ── NDT ── */
@@ -701,7 +965,7 @@ export function buildVessel(v: Vessel, opt: CalcOptions, pwhtOn: boolean): Vesse
   const thermocouples = Math.max(6, Math.ceil((v.tt / 1000) / 3) + 2);
   const chargeKg = weight.total;
   const furnaceHours = round((holdTempMin - 20) / heatRate + holdHours + (holdTempMin - 60) / coolRate + 4, 1);
-  const pwhtCost = pwhtOn ? round(COST_RATES.pwhtSetup + chargeKg * COST_RATES.pwhtPerKg + furnaceHours * 120, 0) : 0;
+  const pwhtCost = pwhtOn ? round(rates.pwhtSetup + chargeKg * rates.pwhtPerKg + furnaceHours * 120, 0) : 0;
   const curve: { t: number; temp: number }[] = [];
   let tAcc = 0;
   const heatTime = (holdTempMin - 20) / heatRate;
@@ -764,32 +1028,57 @@ export function buildVessel(v: Vessel, opt: CalcOptions, pwhtOn: boolean): Vesse
     return { ...s, days: Math.round(s.days * 10) / 10, start: Math.round(start * 10) / 10, end };
   });
 
-  /* ── cost & manhours ── */
-  const plateCost = weight.shell * COST_RATES.plateKg * 1.08
-    + weight.heads * COST_RATES.plateKg * 1.22
-    + weight.nozzles * COST_RATES.plateKg * 2.6
-    + weight.manways * COST_RATES.plateKg * 2.2
-    + weight.internals * COST_RATES.plateKg * 1.4
-    + weight.support * COST_RATES.plateKg
-    + weight.attachments * COST_RATES.plateKg
-    + weight.lining * COST_RATES.ssPlateKg;
+  /* ── cost & manhours — landed import plus delivered export ── */
+  const material = sourceParts(parts, rates, sourcing);
+  const importSummary = summariseImport(material);
+  const materialUsd = material.reduce((a, m) => a + m.landedUsd, 0);
+  const materialBhd = materialUsd * rates.fxBhdPerUsd;
   const manhours = round(weld.hours + 120 + nozzleCount * 12 + (v.trays ?? 0) * 9 + (pwhtOn ? 40 : 0), 0);
   const paintM2 = round(Math.PI * (v.di / 1000) * (v.tt / 1000) + 2 * areaM2 + Math.PI * (v.di / 1000) * skirtH / 1000, 1);
-  const ndtCost = round(totalLengthM * (thk.e >= 1 ? 58 : 34) + 900 + (v.h2s ? 750 : 0), 0);
+  const ndtCost = round(totalLengthM * (thk.e >= 1 ? rates.ndtFullPerM : rates.ndtSpotPerM) + 900 + (v.h2s ? 750 : 0), 0);
+  const labourBhd = manhours * rates.shopRateBhd;
+  const labourUsd = labourBhd / rates.fxBhdPerUsd;
+  const consumables = round(weld.totalMetalKg * rates.consumablePerKg, 0);
+  const paint = round(paintM2 * rates.paintPerM2, 0);
+  const exFab = materialUsd + consumables + labourUsd + ndtCost + pwhtCost + paint;
+  const contingency = exFab * rates.contingencyPct / 100;
+  const margin = (exFab + contingency) * rates.marginPct / 100;
+  const fabricatedForDuty = round(exFab + contingency + margin, 0);
+
+  const tMaxForCargo = Math.max(thk.tShell, thk.tHeadBot);
+  const cargo = {
+    lengthM: round((v.tt + (horiz ? 0 : skirtH) + 0.5 * v.di) / 1000, 2),
+    widthM: round((v.di + 2 * tMaxForCargo + 600) / 1000, 2),
+    heightM: round((v.di + 2 * tMaxForCargo + 900) / 1000, 2),
+    weightT: round(weight.total / 1000, 2),
+    volumeM3: 0,
+    freightT: 0,
+  };
+  cargo.volumeM3 = round(cargo.lengthM * cargo.widthM * cargo.heightM, 2);
+  cargo.freightT = round(Math.max(cargo.weightT, cargo.volumeM3 / 3), 2);
+  const shipment = planShipment(cargo, rates, logistics, fabricatedForDuty);
+
   const cost: CostBreak = {
-    plate: round(plateCost, 0),
-    consumables: round(weld.totalMetalKg * 5.2, 0),
-    labour: round(manhours * COST_RATES.shopHour, 0),
+    plate: round(materialUsd, 0),
+    materialUsd: round(materialUsd, 0),
+    materialBhd: round(materialBhd, 0),
+    consumables,
+    labour: round(labourUsd, 0),
+    labourBhd: round(labourBhd, 0),
     ndt: ndtCost,
     pwht: pwhtCost,
-    paint: round(paintM2 * COST_RATES.paintPerM2, 0),
-    total: 0,
+    paint,
+    exportUsd: shipment.totalUsd,
+    exportBhd: shipment.totalBhd,
+    deliveredUsd: round(fabricatedForDuty + shipment.totalUsd, 0),
+    deliveredBhd: round((fabricatedForDuty + shipment.totalUsd) * rates.fxBhdPerUsd, 0),
+    total: round(fabricatedForDuty + shipment.totalUsd, 0),
   };
-  cost.total = round(cost.plate + cost.consumables + cost.labour + cost.ndt + cost.pwht + cost.paint, 0);
 
   return {
     vessel: v, thk, shell, shellTop, shellAlts: alts, weight, parts, weld, ndt, pwht, schedule,
-    cost, manhours, paintM2, steelGrade: grade.spec,
+    cost, material, importSummary, shipment, rates, logistics,
+    manhours, paintM2, steelGrade: grade.spec,
     calc: {
       totalLengthM: v.orientation === 'H'
         ? v.tt / 1000 + (sadW / 1000) * 2
@@ -1156,7 +1445,7 @@ export function fleetRollup(calcs: VesselCalc[]): {
 } {
   const rows: FleetRow[] = calcs.map((c) => ({
     id: c.vessel.id, service: c.vessel.service, unit: c.vessel.unit, kind: c.vessel.kind,
-    weight: c.weight.total, plateT: round(c.weight.total / 1000, 2), weldM: c.calc.totalLengthM,
+    weight: c.weight.total, plateT: round(c.weight.total / 1000, 2),    weldM: c.weld.totalLengthM,
     ndtM: round(c.calc.totalLengthM * (c.thk.e >= 1 ? 1.14 : 0.52), 1),
     hours: c.manhours, cost: c.cost.total, pwht: c.pwht.active, scrapPct: c.shell.scrapPct, tShell: c.thk.tShell,
     totalLengthM: c.calc.totalLengthM,
@@ -1180,4 +1469,7 @@ export function fmt(n: number, d = 0): string {
 }
 export function money(n: number): string {
   return '$' + Math.round(n).toLocaleString('en-US');
+}
+export function moneyBhd(n: number): string {
+  return 'BD ' + Math.round(n).toLocaleString('en-US');
 }

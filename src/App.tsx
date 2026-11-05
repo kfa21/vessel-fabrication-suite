@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { EQUIPMENT, UNITS, withOrientation, type Orientation, type Vessel } from './data/vessels';
-import { buildVessel, buildGeo, fleetRollup, fmt, money, type Strategy, type VesselCalc } from './lib/engine';
+import { buildVessel, buildGeo, fleetRollup, fmt, money, moneyBhd, type Strategy, type VesselCalc } from './lib/engine';
+import { DEFAULT_LOGISTICS, DEFAULT_RATES, type LogisticsChoice, type Rates, type ShippingMode } from './data/rates';
 import RegisterTab from './components/tabs/RegisterTab';
 import SummaryTab from './components/tabs/SummaryTab';
 import DatasheetTab from './components/tabs/DatasheetTab';
@@ -8,13 +9,15 @@ import AiImportTab from './components/tabs/AiImportTab';
 import DesignTab from './components/tabs/DesignTab';
 import MaterialsTab from './components/tabs/MaterialsTab';
 import BoqTab from './components/tabs/BoqTab';
+import RatesTab from './components/tabs/RatesTab';
+import LogisticsTab from './components/tabs/LogisticsTab';
 import PartsTab from './components/tabs/PartsTab';
 import WeldTab from './components/tabs/WeldTab';
 import NdtTab from './components/tabs/NdtTab';
 import PwhtTab from './components/tabs/PwhtTab';
 import MfgTab from './components/tabs/MfgTab';
 
-type TabId = 'register' | 'summary' | 'design' | 'material' | 'boq' | 'parts' | 'weld' | 'ndt' | 'pwht' | 'mfg' | 'datasheet' | 'ai';
+type TabId = 'register' | 'summary' | 'design' | 'material' | 'boq' | 'rates' | 'logistics' | 'parts' | 'weld' | 'ndt' | 'pwht' | 'mfg' | 'datasheet' | 'ai';
 type RtMode = 'auto' | 'full' | 'spot' | 'none';
 
 function stamp(roll: ReturnType<typeof fleetRollup>, calcs: VesselCalc[]) {
@@ -32,6 +35,8 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'design', label: 'Design & 3D' },
   { id: 'material', label: 'Material / BOQ' },
   { id: 'boq', label: 'Optimized BOQ' },
+  { id: 'rates', label: 'Rates' },
+  { id: 'logistics', label: 'Logistics' },
   { id: 'parts', label: 'Part plan' },
   { id: 'weld', label: 'Weld plan' },
   { id: 'ndt', label: 'NDT plan' },
@@ -56,6 +61,13 @@ export default function App() {
   );
   // datasheet edits — these are the engineering basis for every downstream calculation
   const [overrides, setOverrides] = useState<Record<string, Partial<Vessel>>>({});
+  // commercial settings, per-part source countries and delivery choice
+  const [rates, setRates] = useState<Rates>(DEFAULT_RATES);
+  const [sources, setSources] = useState<Record<string, string>>({});
+  const [logistics, setLogistics] = useState<LogisticsChoice>(DEFAULT_LOGISTICS);
+
+  const patchRates = (patch: Partial<Rates>) => setRates((r) => ({ ...r, ...patch }));
+  const mergeSources = (patch: Record<string, string>) => setSources((s) => ({ ...s, ...patch }));
 
   const patchVessel = (id: string, patch: Partial<Vessel>) =>
     setOverrides((m) => ({ ...m, [id]: { ...(m[id] ?? {}), ...patch } }));
@@ -68,17 +80,18 @@ export default function App() {
     [orientMap, overrides],
   );
 
+  const commercial = { rates, sourcing: sources, logistics };
   const baselineCalcs = useMemo(
-    () => vessels.map((v) => buildVessel(v, { strategy: 'standard', rt: rtMode }, pwhtMap[v.id])),
-    [vessels, pwhtMap, rtMode],
+    () => vessels.map((v) => buildVessel(v, { strategy: 'standard', rt: rtMode }, pwhtMap[v.id], commercial)),
+    [vessels, pwhtMap, rtMode, rates, sources, logistics],
   );
   const optimizedCalcs = useMemo(
-    () => vessels.map((v) => buildVessel(v, { strategy: 'optimized', rt: rtMode }, pwhtMap[v.id])),
-    [vessels, pwhtMap, rtMode],
+    () => vessels.map((v) => buildVessel(v, { strategy: 'optimized', rt: rtMode }, pwhtMap[v.id], commercial)),
+    [vessels, pwhtMap, rtMode, rates, sources, logistics],
   );
   const wideCalcs = useMemo(
-    () => vessels.map((v) => buildVessel(v, { strategy: 'wide', rt: rtMode }, pwhtMap[v.id])),
-    [vessels, pwhtMap, rtMode],
+    () => vessels.map((v) => buildVessel(v, { strategy: 'wide', rt: rtMode }, pwhtMap[v.id], commercial)),
+    [vessels, pwhtMap, rtMode, rates, sources, logistics],
   );
 
   const fleet = strategy === 'standard' ? baselineCalcs : strategy === 'wide' ? wideCalcs : optimizedCalcs;
@@ -115,7 +128,7 @@ export default function App() {
 
   const tabBadge: Partial<Record<TabId, string>> = {
     parts: String(selected.parts.length),
-    weld: `${Math.round(selected.calc.totalLengthM)} m`,
+    weld: `${Math.round(selected.weld.totalLengthM)} m`,
     ndt: `${selected.ndt.length}`,
     pwht: selected.pwht.active ? 'ON' : '—',
     mfg: `${Math.round(Math.max(...selected.schedule.map((s) => s.end)))} d`,
@@ -144,7 +157,7 @@ export default function App() {
           <div className="top-stat"><b>{visible.length}</b><span>vessels</span></div>
           <div className="top-stat"><b>{fmt(roll.weight / 1000, 0)} t</b><span>fabricated</span></div>
           <div className="top-stat"><b>{roll.pwhtCount}</b><span>PWHT</span></div>
-          <div className="top-stat"><b>{money(roll.cost)}</b><span>est. value</span></div>
+          <div className="top-stat"><b>{moneyBhd(roll.cost * rates.fxBhdPerUsd)}</b><span>delivered</span></div>
         </div>
       </header>
 
@@ -269,7 +282,18 @@ export default function App() {
                 baseline={baselineRoll} optimized={optimizedRoll}
               />
             )}
-            {tab === 'boq' && <BoqTab fleet={visible} />}
+            {tab === 'boq' && (
+              <BoqTab fleet={visible} calc={selected} rates={rates} onSources={mergeSources} />
+            )}
+            {tab === 'rates' && (
+              <RatesTab rates={rates} onChange={patchRates} onReset={() => setRates(DEFAULT_RATES)} />
+            )}
+            {tab === 'logistics' && (
+              <LogisticsTab
+                calc={selected} fleet={visible} rates={rates} logistics={logistics}
+                onChange={(l: LogisticsChoice) => setLogistics(l)}
+              />
+            )}
             {tab === 'parts' && <PartsTab calc={selected} />}
             {tab === 'weld' && <WeldTab calc={selected} />}
             {tab === 'ndt' && <NdtTab calc={selected} />}

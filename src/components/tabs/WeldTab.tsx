@@ -1,48 +1,70 @@
 import { Card, Note, Pill, Stat, downloadCsv } from '../ui';
-import { PROCESS_RATE } from '../../data/materials';
-import { fmt, round, type VesselCalc } from '../../lib/engine';
+import { fmt, moneyBhd, round, type VesselCalc } from '../../lib/engine';
+import type { WeldProcess } from '../../data/rates';
 
 export default function WeldTab({ calc }: { calc: VesselCalc }) {
   const v = calc.vessel;
   const w = calc.weld;
+  const rules = calc.rates.weld;
+
   const byProcess = Object.entries(
     w.rows.reduce<Record<string, { kg: number; m: number; h: number }>>((acc, r) => {
-      const a = acc[r.process] ?? { kg: 0, m: 0, h: 0 };
-      a.kg += r.metalKg; a.m += r.lengthM; a.h += r.hours;
-      acc[r.process] = a;
+      const add = (p: WeldProcess | '—', kg: number, h: number) => {
+        if (p === '—' || kg <= 0) return;
+        const a = acc[p] ?? { kg: 0, m: 0, h: 0 };
+        a.kg += kg; a.m += r.lengthM; a.h += h;
+        acc[p] = a;
+      };
+      add(r.rootProcess, r.rootMetalKg, r.rootHours);
+      add(r.fillProcess, r.fillMetalKg, r.fillHours);
       return acc;
     }, {}),
   );
+
   const tMax = Math.max(calc.thk.tShell, calc.thk.tHeadBot);
   const preheat = tMax > 38 ? 120 : tMax > 25 ? 100 : 20;
+  const singleV = w.rows.filter((r) => r.jointDetail.startsWith('Single')).length;
 
   const exportWeld = () => downloadCsv(`WeldPlan-${v.id}.csv`, [
     ['WELD PLAN', v.id, v.service],
-    ['No', 'Joint', 'Cat', 'Joint type', 'Qty', 'Length m', 'Thk mm', 'Process', 'E', 'RT %', 'Metal kg', 'Hours'],
-    ...w.rows.map((r) => [r.no, r.joint, r.category, r.type, r.qty, r.lengthM, r.thk, r.process, r.e, r.rtPct, r.metalKg, r.hours]),
+    ['Root process', rules.rootProcess, 'Fill ≤ threshold', rules.fillLow, 'Fill > threshold', rules.fillHigh],
+    ['Double-V from mm', rules.doubleVMin, 'Fill threshold mm', rules.fillThreshold, 'Back-gouge threshold mm', rules.gougeDia],
     [],
-    ['TOTAL', '', '', '', '', w.totalLengthM, '', '', '', '', w.totalMetalKg, w.hours],
+    ['No', 'Joint', 'Cat', 'Joint detail', 'Qty', 'Length m', 'Thk mm', 'Root', 'Fill', 'E', 'RT %',
+      'Root kg', 'Fill kg', 'Metal kg', 'Root h', 'Fill h', 'Back-gouge', 'Gouge h', 'Fit h', 'Hours'],
+    ...w.rows.map((r) => [
+      r.no, r.joint, r.category, r.jointDetail, r.qty, r.lengthM, r.thk, r.rootProcess, r.fillProcess,
+      r.e, r.rtPct, r.rootMetalKg, r.fillMetalKg, r.metalKg, r.rootHours, r.fillHours,
+      r.backGouge ? r.gougeMethod : '—', r.gougeHours, r.fitHours, r.hours,
+    ]),
+    [],
+    ['TOTAL', '', '', '', '', w.totalLengthM, '', '', '', '', '', '', '', w.totalMetalKg,
+      w.rootHours, w.fillHours, '', w.gougeHours, w.fitHours, w.hours],
   ]);
 
   return (
     <div className="grid" style={{ gap: 12 }}>
       <div className="grid g4">
-        <Stat label="Total weld length" value={fmt(w.totalLengthM)} unit="m" hint={`${w.rows.length} joint categories`} />
+        <Stat label="Total weld length" value={fmt(w.totalLengthM)} unit="m" hint={`${w.rows.length} joint categories · ${singleV} single-V`} />
         <Stat label="Deposited metal" value={fmt(w.totalMetalKg)} unit="kg" hint={`${round(w.totalMetalKg * 1.08, 0)} kg consumable incl. 8% loss`} tone="amber" />
-        <Stat label="Arc hours" value={fmt(w.arcHours)} unit="h" hint={`${fmt(w.hours)} total weld man-hours`} />
-        <Stat label="Preheat" value={preheat} unit="°C" hint={tMax > 25 ? `t = ${tMax} mm > 25 mm — minimum preheat` : 'ambient, no preheat'} />
+        <Stat label="Weld man-hours" value={fmt(w.hours)} unit="h" hint={`${fmt(w.arcHours)} arc + ${fmt(w.fitHours)} fit + ${fmt(w.gougeHours)} gouge`} />
+        <Stat label="Weld labour" value={moneyBhd(w.hours * calc.rates.shopRateBhd)} hint={`${w.hours} h × ${calc.rates.shopRateBhd.toFixed(2)} BHD/h`} tone="cyan" />
       </div>
 
-      <Card title="Weld plan — joint register" sub={`${v.id} · ASME IX qualified WPS required`}
-        right={<button className="btn sm" onClick={exportWeld}>↓ Export weld plan CSV</button>} flush>
+      <Card
+        title="Weld plan — layer-by-layer joint register"
+        sub={`${v.id} · ${rules.rootProcess} root · ${rules.fillLow} ≤ ${rules.fillThreshold} mm · ${rules.fillHigh} > ${rules.fillThreshold} mm`}
+        right={<button className="btn sm" onClick={exportWeld}>↓ Export weld plan CSV</button>} flush
+      >
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>No.</th><th style={{ minWidth: 300 }}>Joint</th><th>Cat.</th><th>Joint detail</th>
+                <th>No.</th><th style={{ minWidth: 280 }}>Joint</th><th>Cat.</th><th>Joint detail</th>
                 <th className="num">Qty</th><th className="num">Length</th><th className="num">Thk</th>
-                <th>Process</th><th className="num">E</th><th className="num">RT %</th>
-                <th className="num">Metal kg</th><th className="num">Hours</th>
+                <th>Root</th><th>Fill</th><th className="num">Metal kg</th>
+                <th className="num">Root h</th><th className="num">Fill h</th>
+                <th>Back-gouge</th><th className="num">Gouge h</th><th className="num">Fit h</th><th className="num">Hours</th>
               </tr>
             </thead>
             <tbody>
@@ -51,15 +73,21 @@ export default function WeldTab({ calc }: { calc: VesselCalc }) {
                   <td className="mono" style={{ color: 'var(--amber)' }}>{r.no}</td>
                   <td>{r.joint}</td>
                   <td><Pill tone={r.category === 'A' ? 'info' : r.category === 'D' ? 'warn' : undefined}>{r.category}</Pill></td>
-                  <td className="small muted">{r.type}</td>
+                  <td className="small muted">{r.jointDetail}</td>
                   <td className="num">{r.qty}</td>
                   <td className="num">{r.lengthM} m</td>
                   <td className="num">{round(r.thk, 0)}</td>
-                  <td><Pill>{r.process}</Pill></td>
-                  <td className="num">{r.e.toFixed(2)}</td>
-                  <td className="num">{r.rtPct || '—'}</td>
+                  <td><Pill>{r.rootProcess}</Pill></td>
+                  <td><Pill tone={r.fillProcess === 'SAW' ? 'info' : undefined}>{r.fillProcess}</Pill></td>
                   <td className="num">{r.metalKg}</td>
-                  <td className="num">{r.hours}</td>
+                  <td className="num">{r.rootHours || '—'}</td>
+                  <td className="num">{r.fillHours || '—'}</td>
+                  <td className="small">
+                    {r.backGouge ? <span style={{ color: 'var(--amber)' }}>{r.gougeMethod}</span> : <span className="muted">not required</span>}
+                  </td>
+                  <td className="num">{r.gougeHours || '—'}</td>
+                  <td className="num">{r.fitHours}</td>
+                  <td className="num"><b>{r.hours}</b></td>
                 </tr>
               ))}
             </tbody>
@@ -67,9 +95,13 @@ export default function WeldTab({ calc }: { calc: VesselCalc }) {
               <tr>
                 <td colSpan={5}>Total</td>
                 <td className="num">{w.totalLengthM} m</td>
-                <td colSpan={3} />
-                <td className="num">—</td>
+                <td colSpan={2} />
                 <td className="num">{w.totalMetalKg}</td>
+                <td className="num">{w.rootHours}</td>
+                <td className="num">{w.fillHours}</td>
+                <td />
+                <td className="num">{w.gougeHours}</td>
+                <td className="num">{w.fitHours}</td>
                 <td className="num">{w.hours}</td>
               </tr>
             </tfoot>
@@ -77,15 +109,16 @@ export default function WeldTab({ calc }: { calc: VesselCalc }) {
         </div>
         <div className="tbl-note">
           Joint categories per UW-3: <b>A</b> longitudinal shell seams, head seams and head-to-shell closures;
-          <b> B</b> circumferential shell seams; <b>C</b> flange-to-neck; <b>D</b> nozzle-to-shell/head.
-          RT extent follows UW-11 for the joint efficiency used in the thickness calculation.
+          <b> B</b> circumferential shell seams; <b>C</b> flange-to-neck; <b>D</b> nozzle-to-shell/head. Butt joints
+          below {rules.doubleVMin} mm are single-V with back-gouging, thicker joints are double-V. Back-gouging is
+          manual below {fmt(rules.gougeDia)} mm bore and machine grinding at or above it.
         </div>
       </Card>
 
       <div className="grid g2">
-        <Card title="Welding process mix" sub="deposited metal and man-hours">
+        <Card title="Welding process mix" sub="root and fill layers priced separately">
           <table>
-            <thead><tr><th>Process</th><th className="num">Length</th><th className="num">Metal</th><th className="num">Arc h</th><th className="num">Rate</th><th>Application</th></tr></thead>
+            <thead><tr><th>Process</th><th className="num">Length</th><th className="num">Metal</th><th className="num">Hours</th><th className="num">Rate</th><th>Application</th></tr></thead>
             <tbody>
               {byProcess.map(([p, r]) => (
                 <tr key={p}>
@@ -93,19 +126,21 @@ export default function WeldTab({ calc }: { calc: VesselCalc }) {
                   <td className="num">{round(r.m, 1)} m</td>
                   <td className="num">{fmt(r.kg)} kg</td>
                   <td className="num">{round(r.h, 0)}</td>
-                  <td className="num">{PROCESS_RATE[p]} kg/h</td>
+                  <td className="num">{rules.rates[p as WeldProcess] ?? '—'} kg/h</td>
                   <td className="small muted">
-                    {p === 'SAW' ? 'Shell/head long seams, girths' : p === 'FCAW' ? 'Nozzles, attachments, fillets'
-                      : p === 'GTAW' ? 'Root passes, stainless / lining' : 'Repair and small fillets'}
+                    {p === 'SAW' ? 'Double-V fill above the thickness threshold'
+                      : p === 'SMAW' ? 'Fill up to the thickness threshold'
+                        : p === 'GTAW' ? 'Root pass on butt and full-pen joints'
+                          : 'Fillets, attachments and nozzle details'}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
           <Note tone="amber">
-            Preheat {preheat} °C minimum, interpass ≤ 250 °C, heat input 0.8–2.5 kJ/mm for P-No.1. Root pass
-            GTAW/FCAW, fill SAW on shell seams. All welders and operators qualified to ASME IX with WPS/PQR
-            on project file before production welding.
+            Preheat {preheat} °C minimum, interpass ≤ 250 °C, heat input 0.8–2.5 kJ/mm for P-No.1.
+            Root {rules.rootProcess} on all butt joints; fill changes at {rules.fillThreshold} mm.
+            Arc hours are multiplied by {rules.arcFactor}; fit-up is {rules.fitPerM} h/m plus {rules.jointSetup} h/joint.
           </Note>
         </Card>
 
@@ -118,7 +153,8 @@ export default function WeldTab({ calc }: { calc: VesselCalc }) {
             <dt>Cleaning</dt><dd>Slag-free, brushed, dry</dd>
             <dt>Consumables</dt><dd>Low-hydrogen, controlled store</dd>
             <dt>Repair rate allowance</dt><dd>8% of weld metal</dd>
-            <dt>Back-gouging</dt><dd>Air-carbon arc + grind to sound metal</dd>
+            <dt>Single-V back-gouging</dt><dd>{rules.gougeManual} h/m manual · {rules.gougeMachine} h/m machine</dd>
+            <dt>Back-gouge method</dt><dd>Machine ≥ {fmt(rules.gougeDia)} mm bore, manual below</dd>
             <dt>Weld metal / shell weight</dt><dd>{round((w.totalMetalKg / calc.weight.total) * 100, 2)}%</dd>
           </dl>
           <Note>
@@ -132,7 +168,7 @@ export default function WeldTab({ calc }: { calc: VesselCalc }) {
       <Card title="Fit-up and welding sequence" sub="to control distortion and residual stress">
         <ol className="small" style={{ margin: 0, paddingLeft: 18, color: 'var(--txt-2)', lineHeight: 1.85 }}>
           <li>Lay out and mark courses; stagger longitudinal seams by ≥ 180°, minimum 100 mm from any course girth seam.</li>
-          <li>Fit and weld longitudinal seams first (inside root, outside back-gouge, SAW fill/cap).</li>
+          <li>Fit and weld longitudinal seams first (inside root, outside back-gouge, {rules.fillHigh} fill/cap).</li>
           <li>Fit courses in vertical position, align using strongbacks; weld girth seams with two operators balanced 180° apart.</li>
           <li>Fit bottom head, then top head; verify overall tangent-to-tangent {fmt(v.tt)} mm before final closure.</li>
           <li>Locate and cut all nozzle openings from the approved orientation drawing; fit nozzles with reinforcement pads and weld per WPS.</li>

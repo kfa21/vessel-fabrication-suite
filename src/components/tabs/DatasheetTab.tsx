@@ -398,7 +398,7 @@ export default function DatasheetTab({ vessel, calc, fleet, onPatch, onReset, is
         <div><span>Fabricated weight</span><b>{fmt(calc.weight.total / 1000, 2)} t</b></div>
         <div><span>Weld length</span><b>{fmt(calc.weld.totalLengthM)} m</b></div>
         <div><span>Man-hours</span><b>{fmt(calc.manhours)}</b></div>
-        <div><span>Estimated value</span><b>{money(calc.cost.total)}</b></div>
+        <div><span>Delivered cost</span><b>{money(calc.cost.total)}</b></div>
       </div>
 
       <div className="ds-legend">

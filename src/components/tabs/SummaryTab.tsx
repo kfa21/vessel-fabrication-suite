@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState } from 'react';
 import { Card, Note, Pill, downloadCsv } from '../ui';
-import { equipmentPartSchedule, fmt, money, round, type VesselCalc } from '../../lib/engine';
+import { equipmentPartSchedule, fmt, money, moneyBhd, round, type VesselCalc } from '../../lib/engine';
 import { datasheetFor, equipClass } from '../../data/vessels';
 
 type Opt = 'All' | string;
@@ -72,7 +72,10 @@ const rowGroups: { group: string; rows: { label: string; sub?: string; get: (c: 
       { label: 'Total length', sub: 'm', get: (c) => fmt(c.calc.totalLengthM / 1000, 1) },
       { label: 'PWHT', get: (c) => (c.pwht.active ? 'in furnace' : c.pwht.required ? 'required' : 'no') },
       { label: 'Shop duration', sub: 'days', get: (c) => round(Math.max(...c.schedule.map((s) => s.end)), 0) },
-      { label: 'Est. value', get: (c) => money(c.cost.total) },
+      { label: 'Landed material', sub: 'BHD', get: (c) => moneyBhd(c.cost.materialBhd) },
+      { label: 'Labour', sub: 'BHD', get: (c) => `${moneyBhd(c.cost.labourBhd)} · ${fmt(c.manhours)} h` },
+      { label: 'Export logistics', sub: 'BHD', get: (c) => moneyBhd(c.cost.exportBhd) },
+      { label: 'Delivered cost', sub: 'BHD', get: (c) => `${moneyBhd(c.cost.deliveredBhd)} (${money(c.cost.deliveredUsd)})` },
     ],
   },
 ];

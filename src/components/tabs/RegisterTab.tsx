@@ -19,7 +19,7 @@ export default function RegisterTab({ fleet, all, onSelect, selectedId }: {
         <Stat label="Vessels in scope" value={fleet.length} unit={`of ${all.length}`} hint="columns, drums, receivers, treaters" />
         <Stat label="Fabricated steel" value={fmt(r.weight / 1000, 1)} unit="t" hint={`${fmt(r.nozzles)} nozzles & manways`} tone="amber" />
         <Stat label="Welding" value={fmt(r.weldM)} unit="m" hint={`${fmt(r.hours)} man-hours · ${r.pwhtCount} PWHT`} />
-        <Stat label="Estimated shop value" value={money(r.cost)} hint="plate + consumables + labour + NDT + PWHT + paint" tone="green" />
+        <Stat label="Delivered value" value={money(r.cost)} hint="landed material + labour + NDT + PWHT + paint + export logistics" tone="green" />
       </div>
 
       <div className="grid g3">
@@ -30,7 +30,7 @@ export default function RegisterTab({ fleet, all, onSelect, selectedId }: {
               <span className="mono">{fmt(u.weight / 1000, 1)} t</span>
             </div>
             <div className="spread" style={{ marginBottom: 7 }}>
-              <span className="muted small">Estimated value</span>
+              <span className="muted small">Delivered value</span>
               <span className="mono">{money(u.cost)}</span>
             </div>
             <div className="spread">
@@ -56,7 +56,7 @@ export default function RegisterTab({ fleet, all, onSelect, selectedId }: {
                 <th>Item</th><th>Unit</th><th style={{ minWidth: 170 }}>Service</th><th>Type</th>
                 <th className="num">ID</th><th className="num">T/T</th><th className="num">P kg/cm²</th>
                 <th className="num">t shell</th><th className="num">Weight</th><th className="num">Weld</th>
-                <th className="num">Man-h</th><th>PWHT</th><th className="num">Cost</th>
+                <th className="num">Man-h</th><th>PWHT</th><th className="num">Delivered</th>
               </tr>
             </thead>
             <tbody>
@@ -73,8 +73,8 @@ export default function RegisterTab({ fleet, all, onSelect, selectedId }: {
                     <td className="num">{v.p}{v.vacuum ? '*' : ''}</td>
                     <td className="num" style={{ color: 'var(--amber)' }}>{c.thk.tShell}</td>
                     <td className="num">{fmt(c.weight.total / 1000, 1)} t</td>
-                    <td className="num">{fmt(c.calc.totalLengthM / 1000, 1)} m</td>
-                    <td className="num">{fmt(c.weld.totalLengthM)}</td>
+                    <td className="num">{fmt(c.weld.totalLengthM)} m</td>
+                    <td className="num">{fmt(c.manhours)}</td>
                     <td className="num">{fmt(c.manhours)}</td>
                     <td>{c.pwht.active ? <Pill tone="warn">PWHT</Pill> : c.pwht.required ? <Pill tone="bad">req.</Pill> : <span className="muted">—</span>}</td>
                     <td className="num">{money(c.cost.total)}</td>

@@ -17,14 +17,38 @@ Project Specification 301 packets supplied with the inquiry:
 | **Equipment summary** | Tag matrix (each equipment tag is a column, every detail a row) with filters for type, orientation, support, PWHT and tag/service. Thickness rows show shell, upper shell, top dish end, bottom dish end, cone and drop leg as **calculated → next market plate gauge**. Below the matrix, one part schedule per equipment in the shop's table form (Equipment Part / Qty / Unit / Material / Note) with CSV exports for both |
 | Design & 3D | Parametric Three.js model built from the real plate plan — vertical **or horizontal**, 2:1 heads, cone transitions, nozzles/manways placed on the correct clock line, WD trays with downcomers, packing beds, catalyst beds with grids/distributors, baffles, saddles or skirt/legs, vacuum stiffeners, drop legs. Weld layer shows Category A longitudinal seams (one per plate, staggered per UW-9), Category B girth seams and head closures at the true course heights. Cutaway / internals / weld / transport-saddle layers, fit-end-mid-end presets, ASME VIII Div.1 thickness sheet, UG-28 vacuum screening, UG-37 nozzle reinforcement, datasheet nozzle schedule |
 | Material / BOQ | Plate nesting alternatives (min-cost optimisation), shell course breakdown, weight take-off, fleet procurement by gauge, baseline vs optimised BOQ with saving |
+| Optimized BOQ | Fleet plate consolidation plus **per-part source-country selection** and landed import cost: mill price, freight, duty, insurance, clearance, documents, $/kg and lead time, with a country summary and CSV export |
+| Rates | Commercial control tab: **2.00 BHD/h editable shop rate**, FX, material/NDT/painting rates, cost-group factors, weld-procedure rules, country sourcing tables, destination markets and shipping equipment |
+| Logistics | Export cargo envelope, automatic road/sea unit selection by length/width/height/weight, freight, customs, duty, insurance, documentation, import landed cost by country and a fleet delivery register |
 | Part plan | Individual part register per vessel (shell, heads, nozzles, manways, internals, support, attachments, lining) with CSV export and forming notes |
-| Weld plan | Joint register by ASME category, joint detail, process, deposition and hours, process mix, preheat/quality controls, welding sequence |
+| Weld plan | Joint register by ASME category with **root/fill layer hours**, GTAW root, SMAW fill to 20 mm, SAW above, single/double-V selection, manual/machine back-gouging, process mix and quality controls |
 | NDT plan | Method/extent/stage/acceptance per joint category (UW-11/UW-51/UW-52), hold points, hydrotest, hardness and PMI requirements |
 | PWHT | Manual **Push to PWHT furnace** toggle (header switch or hero button), UCS-56 cycle, furnace chart, charge schedule, post-PWHT NDT, cost and schedule impact |
 | Manufacturing | Shop Gantt, stage/resource/hold-point table, critical path, transport sections and transportation saddles, ITP sign-off matrix, CSV export |
 
 Every number on the page is derived from the datasheet values (ID, T/T, design pressure,
-vacuum, corrosion allowance, material, heads, class, RT policy, PWHT flag, nozzles, trays/packing).
+vacuum, corrosion allowance, material, heads, class, RT policy, PWHT flag, nozzles, trays/packing)
+and from the commercial basis on the Rates and Optimized BOQ tabs.
+
+## Commercial rates and delivery
+
+The **Rates** tab is the single commercial control panel. The shop manhour rate defaults to
+**2.00 BHD/h** and every labour line follows it; material and freight are held in USD and converted at
+the editable BHD/USD rate (0.376 by default). Weld hours are built from layers rather than one blanket
+process: GTAW root, SMAW fill up to the thickness threshold, SAW above it, double-V from 12 mm and
+single-V below with back-gouging. Back-gouging is manual below 1200 mm bore and machine grinding at or
+above it; all thresholds, deposition rates and fit-up factors are editable.
+
+Raw material is priced by source country on each line of **Optimized BOQ**. The 14-country table
+carries carbon/stainless mill rates, freight, duty, clearance, documents, insurance and lead time, so
+changing a part from India to Bahrain immediately re-prices that part and the country summary.
+Finished-goods delivery is configured on **Logistics**: 13 client markets, road, sea or land+sea, and
+11 trailers/vessels filtered by the actual cargo envelope. The selected unit, freight, port handling,
+customs, duty, insurance and documentation are shown line by line in USD and BHD, followed by the
+fleet delivery register.
+
+Rates are budgetary and editable; replace them with live mill, freight and customs quotations. The
+declared HS code and incoterm still govern the actual customs entry.
 
 ## Orientation and supports
 

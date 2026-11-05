@@ -1,11 +1,15 @@
 import { Card, Note, Pill, Stat, downloadCsv } from '../ui';
-import { fleetBoq, fmt, money, type VesselCalc } from '../../lib/engine';
+import { bestSourceMap, fleetBoq, fmt, money, moneyBhd, type VesselCalc } from '../../lib/engine';
+import type { Rates } from '../../data/rates';
 import { equipClass } from '../../data/vessels';
 
 /** small part areas need decimals — 0.3 m² must not print as 0 */
 const area = (v: number) => (v < 10 ? `${v.toFixed(2)} m²` : `${fmt(v)} m²`);
 
-export default function BoqTab({ fleet }: { fleet: VesselCalc[] }) {
+export default function BoqTab({ fleet, calc, rates, onSources }: {
+  fleet: VesselCalc[]; calc: VesselCalc; rates: Rates;
+  onSources: (patch: Record<string, string>) => void;
+}) {
   const plan = fleetBoq(fleet);
   const columns = fleet.filter((c) => equipClass(c.vessel) === 'Column').length;
   const vessels = fleet.length - columns;
@@ -22,6 +26,20 @@ export default function BoqTab({ fleet }: { fleet: VesselCalc[] }) {
     [],
     ['Equipment', 'Service', 'Class', 'Gauge', 'Net area m2', 'Weight kg'],
     ...plan.demand.map((d) => [d.id, d.service, d.cls, d.gauge, d.area, d.weight]),
+    [],
+    ['PER-PART SOURCING', calc.vessel.id, calc.vessel.service],
+    ['Part', 'Description', 'Group', 'Weight kg', 'Source', 'Mill USD', 'Freight USD', 'Duty USD', 'Insurance USD', 'Clearance USD', 'Landed USD', 'Landed BHD', 'USD/kg', 'Lead days'],
+    ...calc.material.map((m) => [
+      m.no, m.description, m.group, m.weight, m.source, m.millUsd, m.freightUsd, m.dutyUsd,
+      m.insuranceUsd, m.clearanceUsd, m.landedUsd, m.landedBhd, m.usdPerKg, m.leadDays,
+    ]),
+    [],
+    ['IMPORT LANDED BY COUNTRY'],
+    ['Country', 'Weight kg', 'Mill USD', 'Freight USD', 'Duty USD', 'Insurance USD', 'Clearance USD', 'Landed USD', 'Landed BHD', 'Share %', 'Lead days'],
+    ...calc.importSummary.map((r) => [
+      r.country, r.weight, r.millUsd, r.freightUsd, r.dutyUsd, r.insuranceUsd,
+      r.clearanceUsd, r.landedUsd, r.landedBhd, r.sharePct, r.leadDays,
+    ]),
   ]);
 
   return (
@@ -32,6 +50,113 @@ export default function BoqTab({ fleet }: { fleet: VesselCalc[] }) {
         <Stat label="Plate cost" value={money(plan.cost)} hint="consolidated purchase, delivered + cutting" />
         <Stat label="Saving vs separate orders" value={money(plan.saving)} hint={`${plan.soloSavingPct}% · ${plan.soloCost > 0 ? 'fewer part-plates' : '—'}`} tone="green" />
       </div>
+
+      <div className="grid g4">
+        <Stat label="Landed material" value={moneyBhd(calc.cost.materialBhd)} hint={`${money(calc.cost.materialUsd)} · ${calc.material.length} parts`} tone="amber" />
+        <Stat label="Labour" value={moneyBhd(calc.cost.labourBhd)} hint={`${fmt(calc.manhours)} h × ${rates.shopRateBhd.toFixed(2)} BHD/h`} />
+        <Stat label="Export logistics" value={moneyBhd(calc.cost.exportBhd)} hint={`${money(calc.cost.exportUsd)} to ${calc.shipment.destination.country}`} tone="cyan" />
+        <Stat label="Delivered cost" value={moneyBhd(calc.cost.deliveredBhd)} hint={`${money(calc.cost.deliveredUsd)} · ${calc.rates.fxBhdPerUsd.toFixed(3)} BHD/USD`} tone="green" />
+      </div>
+
+      <Card
+        title={`Per-part sourcing — ${calc.vessel.id}`}
+        sub="choose the procurement country on each line; landed cost follows immediately"
+        right={<button className="btn sm" onClick={() => onSources(bestSourceMap(calc.parts, rates))}>Use cheapest source for every part</button>}
+      >
+        <div className="table-wrap" style={{ maxHeight: 520 }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Part</th><th style={{ minWidth: 230 }}>Description</th><th>Group</th>
+                <th className="num">Weight</th><th>Source country</th>
+                <th className="num">Mill</th><th className="num">Freight</th><th className="num">Duty</th>
+                <th className="num">Insurance</th><th className="num">Clearance</th>
+                <th className="num">Landed</th><th className="num">BHD</th><th className="num">$/kg</th><th className="num">Lead</th>
+              </tr>
+            </thead>
+            <tbody>
+              {calc.material.map((m) => (
+                <tr key={m.no}>
+                  <td className="mono" style={{ color: 'var(--amber)' }}>{m.no}</td>
+                  <td className="small">{m.description}</td>
+                  <td><Pill>{m.group}</Pill></td>
+                  <td className="num">{fmt(m.weight, 0)} kg</td>
+                  <td>
+                    <select
+                      value={m.source}
+                      onChange={(e) => onSources({ [m.no]: e.target.value })}
+                      style={{ background: '#0e131a', border: '1px solid var(--line-2)', color: 'var(--txt)', borderRadius: 5, padding: '4px 6px', fontSize: 10.5 }}
+                    >
+                      {rates.countries.map((c) => <option key={c.country} value={c.country}>{c.country}</option>)}
+                    </select>
+                  </td>
+                  <td className="num">{money(m.millUsd)}</td>
+                  <td className="num">{money(m.freightUsd)}</td>
+                  <td className="num">{money(m.dutyUsd)}</td>
+                  <td className="num">{money(m.insuranceUsd)}</td>
+                  <td className="num">{money(m.clearanceUsd)}</td>
+                  <td className="num"><b>{money(m.landedUsd)}</b></td>
+                  <td className="num">{moneyBhd(m.landedBhd)}</td>
+                  <td className="num">{m.usdPerKg.toFixed(2)}</td>
+                  <td className="num">{m.leadDays} d</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={3}>Total landed material</td>
+                <td className="num">{fmt(calc.material.reduce((a, m) => a + m.weight, 0), 0)} kg</td>
+                <td colSpan={6} />
+                <td className="num">{money(calc.cost.materialUsd)}</td>
+                <td className="num">{moneyBhd(calc.cost.materialBhd)}</td>
+                <td colSpan={2} />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div className="tbl-note">
+          Landed cost = weight × mill rate × cost-group factor + freight + duty + insurance + allocated clearance and
+          documents. The selected source drives the country summary below and the import table on Logistics.
+        </div>
+      </Card>
+
+      <Card title={`Import landed by country — ${calc.vessel.id}`} sub={`${calc.importSummary.length} countries supplying this vessel`}>
+        <table>
+          <thead>
+            <tr><th>Country</th><th className="num">Weight</th><th className="num">Mill</th><th className="num">Freight</th><th className="num">Duty</th><th className="num">Insurance</th><th className="num">Clearance</th><th className="num">Landed</th><th className="num">BHD</th><th className="num">Share</th><th className="num">Lead</th></tr>
+          </thead>
+          <tbody>
+            {calc.importSummary.map((r) => (
+              <tr key={r.country}>
+                <td><b>{r.country}</b> <span className="small muted">{r.region}</span></td>
+                <td className="num">{fmt(r.weight, 0)} kg</td>
+                <td className="num">{money(r.millUsd)}</td>
+                <td className="num">{money(r.freightUsd)}</td>
+                <td className="num">{money(r.dutyUsd)}</td>
+                <td className="num">{money(r.insuranceUsd)}</td>
+                <td className="num">{money(r.clearanceUsd)}</td>
+                <td className="num"><b>{money(r.landedUsd)}</b></td>
+                <td className="num">{moneyBhd(r.landedBhd)}</td>
+                <td className="num">{r.sharePct}%</td>
+                <td className="num">{r.leadDays} d</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>Total</td><td className="num">{fmt(calc.importSummary.reduce((a, r) => a + r.weight, 0), 0)} kg</td>
+              <td className="num">{money(calc.importSummary.reduce((a, r) => a + r.millUsd, 0))}</td>
+              <td className="num">{money(calc.importSummary.reduce((a, r) => a + r.freightUsd, 0))}</td>
+              <td className="num">{money(calc.importSummary.reduce((a, r) => a + r.dutyUsd, 0))}</td>
+              <td className="num">{money(calc.importSummary.reduce((a, r) => a + r.insuranceUsd, 0))}</td>
+              <td className="num">{money(calc.importSummary.reduce((a, r) => a + r.clearanceUsd, 0))}</td>
+              <td className="num">{money(calc.cost.materialUsd)}</td>
+              <td className="num">{moneyBhd(calc.cost.materialBhd)}</td>
+              <td className="num">100%</td><td />
+            </tr>
+          </tfoot>
+        </table>
+      </Card>
 
       <Card
         title="Optimised BOQ — one plate purchase for the whole scope"
